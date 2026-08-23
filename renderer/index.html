@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' appbg: data:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <title>Galgame 搜索</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="bg-overlay"></div>
+
+  <div class="app">
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="brand">Galgame 搜索</div>
+        <button id="btn-settings" class="ghost" type="button">设置背景</button>
+      </div>
+      <button id="btn-gear" class="ghost icon-btn" type="button" title="设置">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+        <span>设置</span>
+      </button>
+    </header>
+
+    <div class="searchbar">
+      <input id="keyword" type="text" placeholder="输入 galgame 名称关键词，例如：CLANNAD" autocomplete="off" />
+      <button id="btn-search" type="button">搜索</button>
+    </div>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <span class="panel-title">网站</span>
+          <button id="btn-add-site" class="ghost" type="button">导入网址</button>
+        </div>
+        <ul id="site-list" class="site-list"></ul>
+        <div class="sidebar-foot">
+          <button id="btn-reset-sites" class="ghost" type="button">恢复默认网站</button>
+        </div>
+      </aside>
+
+      <main class="results">
+        <div id="status" class="status">输入关键词后点击“搜索”，结果会显示在这里。</div>
+        <div id="results"></div>
+      </main>
+    </div>
+  </div>
+
+  <!-- 外观设置弹窗 -->
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <span class="panel-title">设置</span>
+        <button id="btn-close-settings" class="ghost" type="button">关闭</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label>主题</label>
+          <div class="row radio-row">
+            <label class="radio"><input type="radio" name="theme" value="light" /> 浅色</label>
+            <label class="radio"><input type="radio" name="theme" value="dark" /> 深色</label>
+          </div>
+        </div>
+        <div class="field">
+          <label>背景图片</label>
+          <div class="row">
+            <button id="btn-pick-bg" type="button">选择图片</button>
+            <button id="btn-clear-bg" class="ghost" type="button">清除图片</button>
+            <span id="bg-status" class="muted">未设置</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>背景颜色</label>
+          <input id="bg-color" type="color" value="#1f2937" />
+        </div>
+        <div class="field">
+          <label>遮罩深浅 <span id="overlay-val" class="muted"></span></label>
+          <input id="bg-overlay-range" type="range" min="0" max="100" step="1" value="25" />
+        </div>
+        <div class="field">
+          <label>界面透明度 <span id="panel-opacity-val" class="muted"></span></label>
+          <input id="panel-opacity-range" type="range" min="30" max="100" step="1" value="85" />
+        </div>
+        <div class="muted hint">遮罩会在背景上叠加一层半透明，让文字更易读。数值越大越暗。</div>
+        <div class="field">
+          <label>缩写词库</label>
+          <div class="row">
+            <button id="btn-update-index" type="button">更新词库</button>
+            <span id="index-status" class="muted">读取中…</span>
+          </div>
+          <div class="muted hint">词库用于中文缩写解析（如 星白、巧2）。点击可强制重新下载约 1.4 万款游戏标题，进度显示在左下角。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 导入网站弹窗 -->
+  <div id="site-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <span id="site-modal-title" class="panel-title">导入网站</span>
+        <button id="btn-close-site-modal" class="ghost" type="button">关闭</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label>网站名称</label>
+          <input id="site-name" type="text" placeholder="例如：我的 galgame 站" />
+        </div>
+        <div class="field">
+          <label>搜索网址</label>
+          <input id="site-url" type="text" placeholder="https://example.com/search?q=CLANNAD" />
+          <div class="muted hint">直接粘贴你在该网站搜过一次后复制出来的网址即可，无需手写 {keyword}。</div>
+        </div>
+        <div class="field">
+          <label>示例关键词（可选）</label>
+          <input id="site-example-kw" type="text" placeholder="例如：CLANNAD" />
+          <div class="muted hint" id="site-example-hint">粘贴网址后会自动识别其中的关键词。保存时该词会被替换为 {keyword}。</div>
+        </div>
+        <div class="field">
+          <label>结果选择器（可选，CSS 选择器）</label>
+          <input id="site-selector" type="text" placeholder="例如：a.search_result_row" />
+        </div>
+        <div class="field">
+          <label>标题选择器（可选，在结果项内部）</label>
+          <input id="site-title-selector" type="text" placeholder="例如：.title" />
+        </div>
+        <div class="modal-actions">
+          <button id="btn-save-site" type="button">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 左下角：标题库加载进度 -->
+  <div id="index-progress" class="hidden">
+    <span id="index-progress-text">正在加载标题库…</span>
+    <div class="progress-track"><div id="index-progress-bar"></div></div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

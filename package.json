@@ -1,0 +1,52 @@
+{
+  "name": "galgame-finder",
+  "version": "1.0.0",
+  "description": "在指定网站查找 galgame 的桌面应用",
+  "author": "local",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node test-search.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win portable",
+    "dist:setup": "electron-builder --win nsis",
+    "dist:all": "electron-builder --win portable nsis"
+  },
+  "dependencies": {
+    "node-html-parser": "^9.0.1"
+  },
+  "devDependencies": {
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.7"
+  },
+  "build": {
+    "appId": "com.local.galgamefinder",
+    "productName": "Galgame搜索",
+    "files": [
+      "main.js",
+      "preload.js",
+      "search.js",
+      "renderer/**/*"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "portable",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Galgame搜索",
+      "artifactName": "Galgame搜索-Setup-${version}.${ext}"
+    },
+    "electronLanguages": [
+      "zh-CN",
+      "en-US"
+    ]
+  }
+}
