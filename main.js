@@ -433,43 +433,65 @@ async function pixivSearch(keyword, fetchImpl, extra, limit) {
   const cookie = readPixivCookie();
   if (!cookie) throw new Error('未登录 Pixiv：请在左侧 Pixiv 行点“登录”完成登录后再搜索');
   const cap = limit || 10;
-  const kw = String(keyword || '').trim();
-  const enc = encodeURIComponent(kw);
+  const raw = String(keyword || '').trim();
+  // 候选查询：原词 + 缩写/全称展开 + 索引展开（覆盖 缩写/全称/日英中/繁简 变体）
+  const candidates = [raw];
+  const exp = expandKeyword(raw);
+  if (exp) {
+    for (const e of exp.expansions) {
+      if (e && !candidates.includes(e)) candidates.push(e);
+    }
+  }
+  for (const e of extra || []) {
+    if (e && !candidates.includes(e)) candidates.push(e);
+  }
+
+  const seenIds = new Set();
   const results = [];
-  for (let p = 1; p <= 10 && results.length < cap; p++) {
-    const url =
-      'https://www.pixiv.net/ajax/search/artworks/' +
-      enc +
-      '?word=' +
-      enc +
-      '&order=date_d&mode=all&p=' +
-      p +
-      '&s_mode=s_tag&type=all&lang=zh';
-    const res = await fetchImpl(url, {
-      headers: {
-        'User-Agent': BROWSER_UA,
-        Referer: 'https://www.pixiv.net/',
-        'Accept-Language': 'zh-CN,zh;q=0.9',
-        Cookie: 'PHPSESSID=' + cookie,
-      },
-    });
-    if (!res.ok) {
-      if (results.length) break; // 已有结果时容错返回
-      throw new Error('Pixiv HTTP ' + res.status);
-    }
-    const data = await res.json();
-    if (data.error) {
-      if (results.length) break;
-      throw new Error(data.message || 'Pixiv 搜索失败');
-    }
-    const items = (data.body && data.body.illustManga && data.body.illustManga.data) || [];
-    if (!items.length) break;
-    for (const it of items) {
-      results.push({
-        title: it.title,
-        url: 'https://www.pixiv.net/artworks/' + it.id,
-        image: it.url ? 'piximg://img/' + encodeURIComponent(it.url) : null,
+  for (const q of candidates) {
+    if (results.length >= cap) break;
+    const enc = encodeURIComponent(q);
+    for (let p = 1; p <= 10 && results.length < cap; p++) {
+      const url =
+        'https://www.pixiv.net/ajax/search/artworks/' +
+        enc +
+        '?word=' +
+        enc +
+        '&order=date_d&mode=all&p=' +
+        p +
+        '&s_mode=s_tag_full&type=all&lang=zh';
+      const res = await fetchImpl(url, {
+        headers: {
+          'User-Agent': BROWSER_UA,
+          Referer: 'https://www.pixiv.net/',
+          'Accept-Language': 'zh-CN,zh;q=0.9',
+          Cookie: 'PHPSESSID=' + cookie,
+        },
       });
+      if (!res.ok) {
+        if (results.length) break; // 已有结果时容错返回
+        throw new Error('Pixiv HTTP ' + res.status);
+      }
+      const data = await res.json();
+      if (data.error) {
+        if (results.length) break;
+        throw new Error(data.message || 'Pixiv 搜索失败');
+      }
+      const items = (data.body && data.body.illustManga && data.body.illustManga.data) || [];
+      if (!items.length) break;
+      let added = 0;
+      for (const it of items) {
+        if (results.length >= cap) break;
+        if (seenIds.has(it.id)) continue;
+        seenIds.add(it.id);
+        results.push({
+          title: it.title,
+          url: 'https://www.pixiv.net/artworks/' + it.id,
+          image: it.url ? 'piximg://img/' + encodeURIComponent(it.url) : null,
+        });
+        added++;
+      }
+      if (added === 0) break; // 本页全是重复结果，无需继续翻页
     }
   }
   return results.slice(0, cap);
@@ -678,6 +700,67 @@ async function extractPixivImagesFromPage(id, cookie) {
   }
 }
 
+// 获取作品全部原图地址：优先 pages 接口（直接给 urls.original，不猜测扩展名），其次 illust 接口，再其次页面提取
+async function getPixivImageUrls(id, cookie) {
+  const headers = { 'User-Agent': BROWSER_UA, Referer: 'https://www.pixiv.net/', Cookie: 'PHPSESSID=' + cookie };
+  // 1) /ajax/illust/{id}/pages —— 最可靠
+  try {
+    const res = await net.fetch('https://www.pixiv.net/ajax/illust/' + id + '/pages', { headers });
+    if (res.ok) {
+      const j = await res.json();
+      if (!j.error && Array.isArray(j.body)) {
+        const urls = [];
+        for (const p of j.body) {
+          const o = p && p.urls && p.urls.original;
+          if (o && urls.indexOf(o) === -1) urls.push(o);
+        }
+        if (urls.length) return urls;
+      }
+    }
+  } catch (e) {
+    /* ignore */
+  }
+  // 2) /ajax/illust/{id}
+  try {
+    const res = await net.fetch('https://www.pixiv.net/ajax/illust/' + id, { headers });
+    if (res.ok) {
+      const j = await res.json();
+      if (!j.error && j.body) {
+        const urls = collectPixivImageUrls(j.body);
+        if (urls.length) return urls;
+      }
+    }
+  } catch (e) {
+    /* ignore */
+  }
+  // 3) 页面兜底
+  return extractPixivImagesFromPage(id, cookie);
+}
+
+// 下载单张图片：先按给定地址，失败时尝试扩展名互换 / master 版本
+async function downloadPixivImage(url, headers, file) {
+  const variants = [url];
+  variants.push(url.replace(/\.png$/i, '.jpg'));
+  variants.push(url.replace(/\.jpg$/i, '.png'));
+  variants.push(url.replace('/img-original/', '/img-master/').replace(/\.(png|jpg|jpeg)$/i, '_master1200.jpg'));
+  const seen = new Set();
+  for (const u of variants) {
+    if (!u || seen.has(u)) continue;
+    seen.add(u);
+    try {
+      const res = await net.fetch(u, { headers });
+      if (res.ok) {
+        const buf = Buffer.from(await res.arrayBuffer());
+        fs.writeFileSync(file, buf);
+        return true;
+      }
+    } catch (e) {
+      /* try next variant */
+    }
+  }
+  return false;
+}
+
 ipcMain.handle('pixiv:download-by-id', async (e, payload) => {
   const id = payload && String(payload.id || '').trim();
   if (!/^\d+$/.test(id)) return { ok: false, message: '作品 ID 无效' };
@@ -695,14 +778,14 @@ ipcMain.handle('pixiv:download-by-id', async (e, payload) => {
     return { ok: false, message: '获取作品信息失败：' + err.message };
   }
   if (info.error || !info.body) return { ok: false, message: info.message || '获取作品信息失败（可能需要重新登录）' };
-  // 2) 收集图片地址：多种字段兼容，失败则抓作品页兜底
-  let urls = collectPixivImageUrls(info.body);
-  if (!urls.length) urls = await extractPixivImagesFromPage(id, cookie);
-  if (!urls.length) return { ok: false, message: '未找到图片地址（作品 ID ' + id + '，可能需要重新登录 Pixiv）' };
   const title = (info.body.title || payload.title || id).replace(/[\\/:*?"<>|]/g, '_').slice(0, 80);
-  // 3) 逐个下载原图到全局下载目录
+  // 2) 收集图片地址（优先 pages 接口的真实原图）
+  let urls = await getPixivImageUrls(id, cookie);
+  if (!urls.length) return { ok: false, message: '未找到图片地址（作品 ID ' + id + '，可能需要重新登录 Pixiv）' };
+  // 3) 逐个下载原图到全局下载目录（失败时自动尝试变体地址）
   const base = getDownloadDir();
   fs.mkdirSync(base, { recursive: true });
+  const headers = { 'User-Agent': BROWSER_UA, Referer: 'https://www.pixiv.net/', Cookie: 'PHPSESSID=' + cookie };
   const files = [];
   for (let i = 0; i < urls.length; i++) {
     let ext = '.png';
@@ -712,17 +795,9 @@ ipcMain.handle('pixiv:download-by-id', async (e, payload) => {
       /* ignore */
     }
     const file = path.join(base, urls.length > 1 ? title + '_p' + i + ext : title + ext);
-    try {
-      const res = await net.fetch(urls[i], {
-        headers: { 'User-Agent': BROWSER_UA, Referer: 'https://www.pixiv.net/', Cookie: 'PHPSESSID=' + cookie },
-      });
-      if (!res.ok) return { ok: false, message: '下载失败 HTTP ' + res.status + '（第 ' + (i + 1) + ' 张）' };
-      const buf = Buffer.from(await res.arrayBuffer());
-      fs.writeFileSync(file, buf);
-      files.push(file);
-    } catch (err) {
-      return { ok: false, message: '下载出错：' + err.message };
-    }
+    const ok = await downloadPixivImage(urls[i], headers, file);
+    if (!ok) return { ok: false, message: '下载失败（第 ' + (i + 1) + ' 张，HTTP 404 或网络错误）' };
+    files.push(file);
   }
   return { ok: true, files };
 });
