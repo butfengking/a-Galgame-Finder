@@ -245,6 +245,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: false, // 窗口失焦/隐藏时不节流，保证视频背景不因失焦暂停
     },
   });
   if (process.env.SMOKE_TEST) {

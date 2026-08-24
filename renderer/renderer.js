@@ -87,6 +87,21 @@
     document.body.style.setProperty('--panel', 'rgba(' + rgb + ', ' + alpha + ')');
   }
 
+  // 视频背景：窗口重新可见/聚焦时恢复播放（Chromium 失焦会暂停媒体且不自动恢复）
+  function resumeBgVideo() {
+    if (!settings || !settings.background) return;
+    const bg = settings.background;
+    if (bg.mode !== 'video' || !bg.video) return;
+    const videoEl = document.getElementById('bg-video');
+    if (videoEl && !videoEl.classList.contains('hidden') && videoEl.paused) {
+      videoEl.play().catch(() => {});
+    }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) resumeBgVideo();
+  });
+  window.addEventListener('focus', resumeBgVideo);
+
   function syncSettingsForm() {
     if (!settings) return;
     const bg = settings.background || {};
