@@ -457,7 +457,10 @@ async function pixivSearch(keyword, fetchImpl, extra, limit, refine) {
   // 人名搜索：因为人名分 姓/名，搜姓或名时 Pixiv 会返回“相关标签”（如搜 莓华 → 御園莓華）。
   // 先搜原词第 1 页：若某个简体/繁体变体是某相关标签的子串（短中文片段 = 人名），
   // 进入人名模式 —— 把完整人名标签加入队列，按配额轮流呈现 名/姓/姓名，再补满上限。
-  // 非人名搜索（无扩展或词非短中文）走原有逐变体深度优先逻辑，行为不变。
+  // 非人名搜索（无扩展、词非短中文、系列/公司名、或原词直搜已有大量结果）不进入人名模式。
+  // 公司/系列后缀标记：相关标签以此结尾（柚子社、電撃文庫 等）判定为系列/公司，不是人名
+  const NAME_MARKER_RE =
+    /(社|屋|組|组|団|团|部|会|祭|展|協会|协会|委員会|委员会|製作|制作|工房|工坊|文庫|文库|書店|书店|ワークス|Works|works|スタジオ|Studio|studio|プロダクション|Production|production|同好会|同人誌)$/;
   const results = [];
   const nameTags = []; // 人物选择器候选：所有从相关标签扩展出来的完整人名
   const queued = new Set(candidates);
@@ -509,13 +512,43 @@ async function pixivSearch(keyword, fetchImpl, extra, limit, refine) {
     }
   };
 
-  // 精确人物搜索：用户从“人物”选择器点选了某个完整人名标签，只搜该标签（不做相关标签扩展）
+  // 精确人物搜索：用户从“人物”选择器勾选了若干完整人名标签，只搜这些标签（不做相关标签扩展）。
+  // 单选：该人物的作品不受配额限制全部取；多选：按配额轮流，保证每个勾选的人物都呈现。
   if (refine) {
-    for (let p = 1; p <= 5 && results.length < cap; p++) {
-      const body = await fetchPage(raw, p);
-      const items = (body.illustManga && body.illustManga.data) || [];
-      if (!items.length) break;
-      pushItems(raw, items);
+    const tags = (Array.isArray(refine) ? refine : [raw]).map((t) => String(t || '').trim()).filter(Boolean);
+    if (tags.length > 1) {
+      const quota = Math.max(2, Math.floor(cap / tags.length));
+      for (let qi = 0; qi < tags.length && results.length < cap; qi++) {
+        const tag = tags[qi];
+        for (let p = 1; p <= 5 && results.length < cap; p++) {
+          if ((perTagCount.get(tag) || 0) >= quota) break;
+          const body = await fetchPage(tag, p);
+          const items = (body.illustManga && body.illustManga.data) || [];
+          if (!items.length) break;
+          const room = quota - (perTagCount.get(tag) || 0);
+          if (room > 0) pushItems(tag, items.slice(0, room));
+        }
+      }
+      // 补足剩余上限
+      if (results.length < cap) {
+        for (const tag of tags) {
+          if (results.length >= cap) break;
+          for (let p = (pageDone.get(tag) || 0) + 1; p <= 5 && results.length < cap; p++) {
+            const body = await fetchPage(tag, p);
+            const items = (body.illustManga && body.illustManga.data) || [];
+            if (!items.length) break;
+            pushItems(tag, items);
+          }
+        }
+      }
+    } else {
+      const tag = tags[0];
+      for (let p = 1; p <= 5 && results.length < cap; p++) {
+        const body = await fetchPage(tag, p);
+        const items = (body.illustManga && body.illustManga.data) || [];
+        if (!items.length) break;
+        pushItems(tag, items);
+      }
     }
     return { items: results, tags: [] };
   }
@@ -527,11 +560,17 @@ async function pixivSearch(keyword, fetchImpl, extra, limit, refine) {
   let quota = 0;
   const variants = [...new Set([raw, tify(raw), sify(raw)].filter(Boolean))];
   const rawBody = await fetchPage(raw, 1);
+  const rawTotal = (rawBody.illustManga && rawBody.illustManga.total) || 0;
   if (Array.isArray(rawBody.relatedTags)) {
     const relevant = rawBody.relatedTags.filter(
-      (rt) => typeof rt === 'string' && rt !== raw && variants.some((v) => rt.length > v.length && rt.includes(v))
+      (rt) =>
+        typeof rt === 'string' &&
+        rt !== raw &&
+        !NAME_MARKER_RE.test(rt) &&
+        variants.some((v) => rt.length > v.length && rt.includes(v))
     );
-    if (relevant.length && raw.length <= 3 && /[\u4e00-\u9fff]/.test(raw)) {
+    // 三道闸门：短中文片段 + 有完整人名相关标签 + 原词直搜结果很少（否则是系列/常用词，不弹人物选择器）
+    if (relevant.length && raw.length <= 3 && /[\u4e00-\u9fff]/.test(raw) && rawTotal < 30) {
       nameMode = true;
       quota = Math.max(2, Math.floor(cap / Math.max(2, relevant.length + 1)));
       for (const rt of relevant) {
@@ -563,6 +602,7 @@ async function pixivSearch(keyword, fetchImpl, extra, limit, refine) {
           for (const rt of body.relatedTags) {
             if (typeof rt !== 'string' || !rt || queued.has(rt)) continue;
             if (queue.length >= 40) break;
+            if (NAME_MARKER_RE.test(rt)) continue; // 系列/公司后缀，不是人名
             if (variants.some((v) => rt.length > v.length && rt.includes(v))) {
               queued.add(rt);
               queue.push(rt);
@@ -991,21 +1031,28 @@ ipcMain.handle('search', async (e, keyword, opts) => {
   keyword = String(keyword || '').trim();
   if (!keyword) return { error: '请输入要查找的关键词' };
 
-  // 人物选择器：点选某个完整人名标签时，只精确搜索该标签对应的 Pixiv 站点
+  // 人物选择器：勾选若干完整人名标签时，只精确搜索这些标签对应的 Pixiv 站点
   const refineOpt = opts && opts.pixivRefine && typeof opts.pixivRefine === 'object' ? opts.pixivRefine : null;
-  if (refineOpt && refineOpt.tag) {
+  if (refineOpt) {
     const site = loadSites().find((s) => s.id === refineOpt.siteId && s.type === 'pixiv');
     if (!site) return { error: '未找到对应的 Pixiv 站点' };
+    let refineTags = [];
+    if (Array.isArray(refineOpt.tags)) {
+      refineTags = refineOpt.tags.map((t) => String(t || '').trim()).filter(Boolean).slice(0, 20);
+    } else if (refineOpt.tag) {
+      refineTags = [String(refineOpt.tag).trim()];
+    }
+    if (!refineTags.length) return { error: '请至少选择一个完整人名标签' };
     const limit = Math.max(1, Math.min(300, Number(loadSettings().resultLimit) || 10));
     try {
-      const res = await pixivSearch(String(refineOpt.tag).trim(), net.fetch, [], limit, true);
+      const res = await pixivSearch('', net.fetch, [], limit, refineTags);
       return {
-        keyword: String(refineOpt.tag).trim(),
+        keyword: refineTags.join(' / '),
         results: [{ siteId: site.id, siteName: site.name, ok: true, count: res.items.length, results: res.items }],
       };
     } catch (err) {
       return {
-        keyword: String(refineOpt.tag).trim(),
+        keyword: refineTags.join(' / '),
         results: [{ siteId: site.id, siteName: site.name, ok: false, error: String((err && err.message) || err) }],
       };
     }

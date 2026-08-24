@@ -19,11 +19,15 @@ function sify(s) { return s.replace(/園/g, '园').replace(/華/g, '华'); }
 function readPixivCookie() { return 'fake-session'; }
 
 // 每个标签的返回量（模拟 Pixiv 真实情况：原词“莓华”几乎没有直配作品，完整人名才有大量作品）
-const WORK_COUNT = { 莓华: 0, 御园莓华: 4, 御園莓華: 30, 莓華: 10, 御園いちか: 6, 白色相簿2: 10, 九條莓華: 8 };
+const WORK_COUNT = { 莓华: 0, 御园莓华: 4, 御園莓華: 30, 莓華: 10, 御園いちか: 6, 白色相簿2: 10, 九條莓華: 8, 柚子: 30, 柚子社: 30, 初音: 50, 初音ミク: 50 };
+// 原词直搜的作品总量（人名片段很少，系列/常用词很多）
+const TOTAL = { 莓华: 0, 莓華: 10, 柚子: 5, 初音: 800, 白色相簿2: 19 };
 const RELATED_FOR = {
   莓华: ['御園莓華', '莓華', '御园莓华'],
   莓華: ['御園莓華', '九條莓華'], // 同名角色：另一个姓 + 同名“莓華”
   御園莓華: ['御園いちか'],
+  柚子: ['柚子社'], // 系列/公司：柚子社 以“社”结尾，不能当人名
+  初音: ['初音ミク'], // 常用词：直搜已有大量作品，不需要人名扩展
 };
 
 const searched = [];
@@ -35,7 +39,7 @@ function mockFetch(url) {
   const count = WORK_COUNT[word] || 0;
   const data = [];
   for (let i = 0; i < count; i++) data.push({ id: (word + page + i).split('').reduce((a, c) => a + c.charCodeAt(0), 0), title: word + ' #' + (page - 1) * 30 + i, url: '' });
-  const body = { illustManga: { data } };
+  const body = { illustManga: { data, total: TOTAL[word] || 0 } };
   if (RELATED_FOR[word]) body.relatedTags = RELATED_FOR[word];
   return { ok: true, json: async () => ({ error: false, body }) };
 }
@@ -103,5 +107,21 @@ async function runSearch(keyword, extra, limit, refine) {
   const ok4 = s4.length === 1 && s4[0] === '白色相簿2' && r4.items.length === 10 && r4.tags.length === 0;
   console.log('[场景4] 长词不扩展:', ok4, '\n');
 
-  if (ok1 && ok2 && ok3 && ok4 && ok5 && ok6) { console.log('PASS'); } else { console.error('FAIL'); process.exit(1); }
+  // 场景8（防误判·系列/公司）：搜“柚子”→ 相关标签“柚子社”以“社”结尾，判定为系列，不弹人物选择器
+  searched.length = 0;
+  const r8 = await runSearch('柚子', [], 30);
+  const s8 = [...new Set(searched.map((s) => s.split('@')[0]))];
+  console.log('[场景8] 搜索标签:', s8.join(' | '), '| 结果数:', r8.items.length, '| 人物候选:', r8.tags.length);
+  const ok8 = s8.length === 1 && s8[0] === '柚子' && r8.tags.length === 0;
+  console.log('[场景8] 柚子社不当成人名:', ok8, '\n');
+
+  // 场景9（防误判·常用词）：搜“初音”→ 直搜已有大量作品（total>=30），不进入人名模式
+  searched.length = 0;
+  const r9 = await runSearch('初音', [], 30);
+  const s9 = [...new Set(searched.map((s) => s.split('@')[0]))];
+  console.log('[场景9] 搜索标签:', s9.join(' | '), '| 结果数:', r9.items.length, '| 人物候选:', r9.tags.length);
+  const ok9 = s9.length === 1 && s9[0] === '初音' && r9.tags.length === 0;
+  console.log('[场景9] 直搜结果多时不弹选择器:', ok9, '\n');
+
+  if (ok1 && ok2 && ok3 && ok4 && ok5 && ok6 && ok8 && ok9) { console.log('PASS'); } else { console.error('FAIL'); process.exit(1); }
 })().catch((e) => { console.error('FAIL', e); process.exit(1); });

@@ -351,7 +351,7 @@ button.danger:hover { border-color: var(--danger); }
 .dl-btn:hover { background: var(--accent-hover); }
 .dl-btn:disabled { opacity: 0.7; cursor: default; }
 
-/* Pixiv 人物选择器 */
+/* Pixiv 人物选择器（复选框多选） */
 .char-tags {
   display: flex;
   flex-wrap: wrap;
@@ -362,6 +362,9 @@ button.danger:hover { border-color: var(--danger); }
 }
 .char-label { font-size: 12px; color: var(--text-dim); margin-right: 2px; }
 .char-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   background: var(--panel-2, transparent);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -369,10 +372,12 @@ button.danger:hover { border-color: var(--danger); }
   font-size: 12px;
   color: var(--text);
   cursor: pointer;
+  user-select: none;
 }
 .char-chip:hover { border-color: var(--accent); color: var(--accent); }
-.char-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-.char-chip:disabled { opacity: 0.7; cursor: default; }
+.char-chip input { margin: 0; accent-color: var(--accent); cursor: pointer; }
+.char-chip:has(input:checked) { background: var(--accent); border-color: var(--accent); color: #fff; }
+.char-chip:has(input:checked):hover { color: #fff; }
 
 .result-list a {
   display: flex;
