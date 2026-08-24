@@ -11,13 +11,7 @@
     results: document.getElementById('results'),
     btnAddSite: document.getElementById('btn-add-site'),
     btnResetSites: document.getElementById('btn-reset-sites'),
-    btnMode: document.getElementById('btn-mode'),
     btnGear: document.getElementById('btn-gear'),
-
-    sitePickerModal: document.getElementById('site-picker-modal'),
-    sitePickerTitle: document.getElementById('site-picker-title'),
-    sitePickerList: document.getElementById('site-picker-list'),
-    btnCloseSitePicker: document.getElementById('btn-close-site-picker'),
 
     settingsModal: document.getElementById('settings-modal'),
     btnCloseSettings: document.getElementById('btn-close-settings'),
@@ -53,15 +47,7 @@
   let editingSiteId = null;
   let exampleKwAuto = false;
   let urlDetectTimer = null;
-  let lastPayload = null; // 最近一次搜索结果，用于切换模式后重新渲染
   const collapsedSites = new Set(); // 本次会话中收起的结果分组
-
-  // 标题归一化（合并模式下去重用）
-  function normTitle(s) {
-    return String(s || '')
-      .toLowerCase()
-      .replace(/[^a-z0-9\u4e00-\u9fff]+/g, '');
-  }
 
   // ---------- 主题与背景 ----------
   function applyBackground() {
@@ -187,10 +173,6 @@
   }
 
   function renderResults(payload) {
-    if (settings && settings.displayMode === 'merged') {
-      renderMergedResults(payload);
-      return;
-    }
     els.results.textContent = '';
     if (payload.error) {
       els.status.textContent = payload.error;
@@ -266,105 +248,6 @@
     }
   }
 
-  // ---------- 合并模式：不分网站、去重平铺 ----------
-  function renderMergedResults(payload) {
-    els.results.textContent = '';
-    if (payload.error) {
-      els.status.textContent = payload.error;
-      return;
-    }
-    // 按标题归一化合并同一结果在不同网站的条目
-    const map = new Map();
-    let totalLinks = 0;
-    for (const r of payload.results) {
-      if (!r.ok || !Array.isArray(r.results)) continue;
-      for (const item of r.results) {
-        totalLinks++;
-        const key = normTitle(item.title) || item.url;
-        let entry = map.get(key);
-        if (!entry) {
-          entry = { title: item.title, sites: [] };
-          map.set(key, entry);
-        }
-        if (!entry.sites.some((s) => s.url === item.url)) {
-          entry.sites.push({ siteName: r.siteName, url: item.url });
-        }
-      }
-    }
-    const entries = [...map.values()];
-
-    const expNote = payload.expanded ? '（已按缩写展开为“' + payload.expanded + '”搜索）' : '';
-    const companyNote = payload.companyName ? '（识别为会社：“' + payload.companyName + '”）' : '';
-    els.status.textContent =
-      '关键词“' + payload.keyword + '”' + expNote + companyNote + '，共 ' + entries.length + ' 个不同结果（' + totalLinks + ' 条站内链接）。点击结果选择网站。';
-
-    if (!entries.length) {
-      const empty = document.createElement('div');
-      empty.className = 'empty-note';
-      empty.textContent = '没有找到相关结果。';
-      els.results.appendChild(empty);
-      return;
-    }
-
-    const list = document.createElement('ul');
-    list.className = 'result-list';
-    for (const e of entries) {
-      const li = document.createElement('li');
-      const a = document.createElement('a');
-      a.className = 'merged-item';
-      a.href = '#';
-      a.addEventListener('click', (ev) => {
-        ev.preventDefault();
-        openSitePicker(e);
-      });
-
-      const titleSpan = document.createElement('span');
-      titleSpan.className = 'merged-title';
-      titleSpan.textContent = e.title;
-      a.appendChild(titleSpan);
-
-      const badges = document.createElement('span');
-      badges.className = 'merged-sites';
-      for (const s of e.sites) {
-        const b = document.createElement('span');
-        b.className = 'site-badge';
-        b.textContent = s.siteName;
-        badges.appendChild(b);
-      }
-      a.appendChild(badges);
-
-      const hint = document.createElement('span');
-      hint.className = 'merged-hint';
-      hint.textContent = '选择网站 ›';
-      a.appendChild(hint);
-
-      li.appendChild(a);
-      list.appendChild(li);
-    }
-    els.results.appendChild(list);
-  }
-
-  // 合并模式：某个结果在各网站的链接弹窗
-  function openSitePicker(entry) {
-    els.sitePickerTitle.textContent = entry.title;
-    els.sitePickerList.textContent = '';
-    for (const s of entry.sites) {
-      const li = document.createElement('li');
-      li.appendChild(makeLink(s.siteName, s.url));
-      els.sitePickerList.appendChild(li);
-    }
-    els.sitePickerModal.classList.remove('hidden');
-  }
-  function closeSitePicker() {
-    els.sitePickerModal.classList.add('hidden');
-  }
-
-  // 模式切换按钮
-  function syncModeButton() {
-    const merged = settings && settings.displayMode === 'merged';
-    els.btnMode.textContent = merged ? '模式：合并' : '模式：分组';
-  }
-
   // ---------- 搜索 ----------
   async function runSearch() {
     const kw = els.keyword.value.trim();
@@ -377,7 +260,6 @@
     els.results.textContent = '';
     try {
       const payload = await api.search(kw);
-      lastPayload = payload;
       renderResults(payload);
     } catch (e) {
       els.status.textContent = '搜索出错：' + (e && e.message ? e.message : e);
@@ -475,17 +357,6 @@
   });
 
   els.btnGear.addEventListener('click', openSettings);
-
-  els.btnMode.addEventListener('click', async () => {
-    settings.displayMode = settings.displayMode === 'merged' ? 'grouped' : 'merged';
-    settings = await api.setSettings(settings);
-    syncModeButton();
-    if (lastPayload) renderResults(lastPayload);
-  });
-  els.btnCloseSitePicker.addEventListener('click', closeSitePicker);
-  els.sitePickerModal.addEventListener('click', (e) => {
-    if (e.target === els.sitePickerModal) closeSitePicker();
-  });
   els.btnCloseSettings.addEventListener('click', closeSettings);
   els.settingsModal.addEventListener('click', (e) => {
     if (e.target === els.settingsModal) closeSettings();
@@ -625,7 +496,6 @@
       settings = await api.getSettings();
       renderSites();
       applyBackground();
-      syncModeButton();
       wireIndexProgress();
     } catch (e) {
       els.status.textContent = '初始化失败：' + (e && e.message ? e.message : e);

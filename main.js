@@ -52,7 +52,6 @@ const SETTINGS_VERSION = 4;
 const DEFAULT_SETTINGS = {
   version: SETTINGS_VERSION,
   theme: 'light', // 'light' | 'dark'
-  displayMode: 'grouped', // 'grouped'（按网站分组）| 'merged'（去重合并）
   panelOpacity: 0.85, // 面板透明度 0.3 ~ 1
   resultLimit: 10, // 每个搜索源最多返回的结果数
   background: {
@@ -120,7 +119,6 @@ function loadSettings() {
     if (data.version === SETTINGS_VERSION || data.version === 2 || data.version === 3) {
       merged.background = { ...merged.background, ...data.background };
       if (data.theme) merged.theme = data.theme;
-      if (data.displayMode === 'grouped' || data.displayMode === 'merged') merged.displayMode = data.displayMode;
       if (typeof data.panelOpacity === 'number') merged.panelOpacity = data.panelOpacity;
       if (typeof data.resultLimit === 'number') merged.resultLimit = data.resultLimit;
       // v3 及更早的遮罩默认值过浅，统一修正为新默认 90%
@@ -488,7 +486,6 @@ ipcMain.handle('settings:set', (e, settings) => {
     s.background = { ...s.background, ...settings.background };
   }
   if (settings && settings.theme) s.theme = settings.theme;
-  if (settings && (settings.displayMode === 'grouped' || settings.displayMode === 'merged')) s.displayMode = settings.displayMode;
   if (settings && typeof settings.panelOpacity === 'number') s.panelOpacity = settings.panelOpacity;
   if (settings && typeof settings.resultLimit === 'number') s.resultLimit = settings.resultLimit;
   s.version = SETTINGS_VERSION;

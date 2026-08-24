@@ -83,12 +83,6 @@ body {
   gap: 14px;
 }
 
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .brand {
   font-size: 18px;
   font-weight: 600;
@@ -341,35 +335,6 @@ button.danger:hover { border-color: var(--danger); }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-/* 合并模式：去重平铺的结果项 */
-.merged-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  cursor: pointer;
-}
-
-.merged-title { font-weight: 500; }
-
-.merged-sites { display: flex; gap: 6px; flex-wrap: wrap; }
-
-.site-badge {
-  font-size: 11px;
-  color: var(--text-dim);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 1px 6px;
-}
-
-.merged-hint {
-  margin-left: auto;
-  color: var(--text-dim);
-  font-size: 12px;
-}
-
-.merged-item:hover .merged-hint { color: var(--accent); }
 
 .error-note {
   padding: 12px 16px;
