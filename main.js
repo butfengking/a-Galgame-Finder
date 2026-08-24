@@ -1,3 +1,6 @@
+// 启动依赖完整性检查：git pull 更新后新增了软件包时自动 npm install 补齐，避免无法启动（打包版自动跳过）
+require('./ensure-deps').ensureDependencies();
+
 const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');

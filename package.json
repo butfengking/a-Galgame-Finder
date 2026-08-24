@@ -28,6 +28,7 @@
       "main.js",
       "preload.js",
       "search.js",
+      "ensure-deps.js",
       "renderer/**/*"
     ],
     "directories": {
