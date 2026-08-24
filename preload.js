@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('api', {
   pickBackgroundImage: () => ipcRenderer.invoke('settings:pick-bg'),
   clearBackgroundImage: () => ipcRenderer.invoke('settings:clear-bg'),
   pickDownloadDir: () => ipcRenderer.invoke('settings:pick-download-dir'),
+  proxyTest: () => ipcRenderer.invoke('proxy:test'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   openInApp: (url) => ipcRenderer.invoke('open-in-app', url),
   downloadPixivById: (payload) => ipcRenderer.invoke('pixiv:download-by-id', payload),

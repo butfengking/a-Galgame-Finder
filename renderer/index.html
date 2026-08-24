@@ -97,6 +97,23 @@
           <div class="muted hint" id="dl-dir-status">默认：系统下载文件夹</div>
         </div>
         <div class="field">
+          <label>网络代理（仅 Pixiv 相关域名走代理，其他网站直连）</label>
+          <label class="checkbox-label"><input id="proxy-enabled" type="checkbox" /> 启用代理访问 Pixiv</label>
+          <div class="row">
+            <select id="proxy-type">
+              <option value="http">HTTP</option>
+              <option value="socks5">SOCKS5</option>
+            </select>
+            <input id="proxy-host" type="text" placeholder="127.0.0.1" />
+            <input id="proxy-port" type="number" min="1" max="65535" step="1" placeholder="7890" />
+          </div>
+          <div class="row">
+            <button id="btn-proxy-test" type="button">测试连接</button>
+            <span id="proxy-test-status" class="muted"></span>
+          </div>
+          <div class="muted hint">填写你代理的地址和端口（本地如 127.0.0.1:7890，也支持远程代理）。未启用或未设置时跟随系统代理。Pixiv 无法直连时需配合代理使用。</div>
+        </div>
+        <div class="field">
           <label>缩写词库</label>
           <div class="row">
             <button id="btn-update-index" type="button">更新词库</button>

@@ -94,6 +94,7 @@ const DEFAULT_SETTINGS = {
   panelOpacity: 0.85, // 面板透明度 0.3 ~ 1
   resultLimit: 10, // 每个搜索源最多返回的结果数
   downloadDir: '', // 全局下载目录；留空则用系统“下载”文件夹
+  proxy: { enabled: false, type: 'http', host: '127.0.0.1', port: 7890 }, // 仅 Pixiv 域名走代理
   background: {
     mode: 'color', // 'color' | 'image' | 'video'
     color: '#e9edf3',
@@ -177,6 +178,7 @@ function loadSettings() {
       if (typeof data.panelOpacity === 'number') merged.panelOpacity = data.panelOpacity;
       if (typeof data.resultLimit === 'number') merged.resultLimit = data.resultLimit;
       if (typeof data.downloadDir === 'string') merged.downloadDir = data.downloadDir;
+      if (data.proxy && typeof data.proxy === 'object') merged.proxy = { ...merged.proxy, ...data.proxy };
     } else if (data.version === 2 || data.version === 3) {
       // 旧版本迁移：仅此一次把过浅的遮罩默认修正为 90%，其余保留
       merged.background = { ...merged.background, ...data.background };
@@ -184,6 +186,7 @@ function loadSettings() {
       if (typeof data.panelOpacity === 'number') merged.panelOpacity = data.panelOpacity;
       if (typeof data.resultLimit === 'number') merged.resultLimit = data.resultLimit;
       if (typeof data.downloadDir === 'string') merged.downloadDir = data.downloadDir;
+      if (data.proxy && typeof data.proxy === 'object') merged.proxy = { ...merged.proxy, ...data.proxy };
       merged.background.overlay = DEFAULT_SETTINGS.background.overlay;
     } else {
       // 更旧的版本：保留背景图片，颜色/遮罩/主题按新默认（浅色）重置
@@ -942,8 +945,46 @@ ipcMain.handle('settings:set', (e, settings) => {
   if (settings && typeof settings.panelOpacity === 'number') s.panelOpacity = settings.panelOpacity;
   if (settings && typeof settings.resultLimit === 'number') s.resultLimit = settings.resultLimit;
   if (settings && typeof settings.downloadDir === 'string') s.downloadDir = settings.downloadDir;
+  if (settings && settings.proxy && typeof settings.proxy === 'object') s.proxy = { ...s.proxy, ...settings.proxy };
   s.version = SETTINGS_VERSION;
-  return saveSettings(s);
+  const saved = saveSettings(s);
+  applyProxy(); // 代理设置变更后立即生效
+  return saved;
+});
+
+// 应用代理：仅 Pixiv 相关域名走代理，其他网站直连
+function applyProxy() {
+  const p = loadSettings().proxy || {};
+  const session = require('electron').session.defaultSession;
+  if (!p.enabled || !p.host || !p.port) {
+    session.setProxy({ mode: 'system' });
+    return;
+  }
+  const scheme = p.type === 'socks5' ? 'socks5://' : 'http://';
+  const proxy = scheme + p.host + ':' + p.port;
+  const rules = ['www.pixiv.net', 'pixiv.net', 'i.pximg.net', 'accounts.pixiv.net']
+    .map((d) => d + '=' + proxy)
+    .join(';');
+  session.setProxy({ mode: 'fixed_servers', proxyRules: rules });
+}
+
+// 测试 Pixiv 连通性（当前代理设置下）
+ipcMain.handle('proxy:test', async () => {
+  try {
+    applyProxy();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const res = await net.fetch('https://www.pixiv.net/', {
+      headers: { 'User-Agent': BROWSER_UA },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (res.ok) return { ok: true, message: 'Pixiv 连接正常' };
+    return { ok: false, message: 'Pixiv 返回 HTTP ' + res.status };
+  } catch (e) {
+    const msg = e && e.cause && e.cause.message ? e.cause.message : e && e.message ? e.message : String(e);
+    return { ok: false, message: '连接失败：' + msg };
+  }
 });
 
 // 全局下载目录：留空用系统“下载”文件夹

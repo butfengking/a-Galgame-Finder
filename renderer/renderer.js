@@ -27,6 +27,12 @@
     btnPickDlDir: document.getElementById('btn-pick-dl-dir'),
     btnResetDlDir: document.getElementById('btn-reset-dl-dir'),
     dlDirStatus: document.getElementById('dl-dir-status'),
+    proxyEnabled: document.getElementById('proxy-enabled'),
+    proxyType: document.getElementById('proxy-type'),
+    proxyHost: document.getElementById('proxy-host'),
+    proxyPort: document.getElementById('proxy-port'),
+    btnProxyTest: document.getElementById('btn-proxy-test'),
+    proxyTestStatus: document.getElementById('proxy-test-status'),
     btnUpdateIndex: document.getElementById('btn-update-index'),
     indexStatus: document.getElementById('index-status'),
 
@@ -125,6 +131,12 @@
     els.dlDirStatus.textContent = settings.downloadDir && settings.downloadDir.trim()
       ? '当前：' + settings.downloadDir
       : '默认：系统下载文件夹';
+    const px = settings.proxy || {};
+    els.proxyEnabled.checked = !!px.enabled;
+    els.proxyType.value = px.type === 'socks5' ? 'socks5' : 'http';
+    els.proxyHost.value = px.host || '127.0.0.1';
+    els.proxyPort.value = String(px.port || 7890);
+    els.proxyTestStatus.textContent = '';
     els.bgStatus.textContent =
       (bg.mode === 'image' || bg.mode === 'video') && bg.filename ? '已设置：' + bg.filename : '未设置';
   }
@@ -136,6 +148,12 @@
     const v = parseInt(els.resultLimitInput.value, 10);
     settings.resultLimit = Math.max(1, Math.min(300, isNaN(v) ? 10 : v));
     els.resultLimitInput.value = String(settings.resultLimit);
+    settings.proxy = {
+      enabled: els.proxyEnabled.checked,
+      type: els.proxyType.value === 'socks5' ? 'socks5' : 'http',
+      host: els.proxyHost.value.trim() || '127.0.0.1',
+      port: Math.max(1, Math.min(65535, parseInt(els.proxyPort.value, 10) || 7890)),
+    };
     settings = await api.setSettings(settings);
     applyBackground();
     syncSettingsForm();
@@ -577,6 +595,20 @@
     settings.downloadDir = '';
     settings = await api.setSettings(settings);
     syncSettingsForm();
+  });
+  // 代理相关控件：变更即保存
+  [els.proxyEnabled, els.proxyType, els.proxyPort].forEach((el) => {
+    el.addEventListener('change', saveBackgroundSettings);
+  });
+  els.proxyHost.addEventListener('change', saveBackgroundSettings);
+  els.btnProxyTest.addEventListener('click', async () => {
+    els.proxyTestStatus.textContent = '测试中…';
+    try {
+      const r = await api.proxyTest();
+      els.proxyTestStatus.textContent = r && r.ok ? 'Pixiv 连接正常' : '失败：' + ((r && r.message) || '未知错误');
+    } catch (e) {
+      els.proxyTestStatus.textContent = '测试出错';
+    }
   });
 
   els.siteUrl.addEventListener('input', () => {

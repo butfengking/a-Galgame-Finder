@@ -482,6 +482,17 @@ button.danger:hover { border-color: var(--danger); }
 
 .row .ghost { padding: 8px 12px; }
 
+.row input[type="text"],
+.row input[type="number"],
+.row select {
+  flex: 1;
+  min-width: 0;
+}
+
+.row select { cursor: pointer; }
+
+.row input[type="number"] { max-width: 110px; }
+
 .radio-row { gap: 16px; }
 
 .radio {
