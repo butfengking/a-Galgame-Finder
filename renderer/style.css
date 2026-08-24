@@ -381,7 +381,8 @@ button.danger:hover { border-color: var(--danger); }
 .field label { display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-dim); }
 
 .field input[type="text"],
-.field input[type="color"] {
+.field input[type="color"],
+.field select {
   width: 100%;
   padding: 9px 12px;
   font-size: 14px;
@@ -390,9 +391,13 @@ button.danger:hover { border-color: var(--danger); }
   border: 1px solid var(--border);
   border-radius: 8px;
   outline: none;
+  font-family: inherit;
 }
 
-.field input[type="text"]:focus { border-color: var(--accent); }
+.field select { cursor: pointer; }
+
+.field input[type="text"]:focus,
+.field select:focus { border-color: var(--accent); }
 
 .field input[type="color"] {
   height: 42px;
@@ -437,6 +442,19 @@ button.danger:hover { border-color: var(--danger); }
   justify-content: flex-end;
   margin-top: 4px;
 }
+
+.modal-error {
+  color: var(--danger);
+  font-size: 13px;
+  background: rgba(214, 69, 69, 0.08);
+  border: 1px solid rgba(214, 69, 69, 0.3);
+  border-radius: 8px;
+  padding: 9px 12px;
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+
+.modal-error.hidden { display: none; }
 
 #btn-save-site {
   padding: 9px 22px;

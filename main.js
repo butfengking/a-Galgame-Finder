@@ -47,18 +47,19 @@ const DEFAULT_SITES = [
   },
 ];
 
-const SETTINGS_VERSION = 3;
+const SETTINGS_VERSION = 4;
 
 const DEFAULT_SETTINGS = {
   version: SETTINGS_VERSION,
   theme: 'light', // 'light' | 'dark'
   panelOpacity: 0.85, // 面板透明度 0.3 ~ 1
+  resultLimit: 10, // 每个搜索源最多返回的结果数
   background: {
     mode: 'color', // 'color' | 'image'
     color: '#e9edf3',
     image: '', // appbg:// URL
     filename: '',
-    overlay: 0.25,
+    overlay: 0.9, // 遮罩深浅默认 90%，深色模式下背景不会过亮
   },
 };
 
@@ -115,10 +116,13 @@ function loadSettings() {
   const data = readJson(settingsFile(), null);
   const merged = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
   if (data && data.background) {
-    if (data.version === SETTINGS_VERSION || data.version === 2) {
+    if (data.version === SETTINGS_VERSION || data.version === 2 || data.version === 3) {
       merged.background = { ...merged.background, ...data.background };
       if (data.theme) merged.theme = data.theme;
       if (typeof data.panelOpacity === 'number') merged.panelOpacity = data.panelOpacity;
+      if (typeof data.resultLimit === 'number') merged.resultLimit = data.resultLimit;
+      // v3 及更早的遮罩默认值过浅，统一修正为新默认 90%
+      merged.background.overlay = DEFAULT_SETTINGS.background.overlay;
     } else {
       // 更旧的版本：保留背景图片，颜色/遮罩/主题按新默认（浅色）重置
       merged.background.image = data.background.image || '';
@@ -313,6 +317,9 @@ ipcMain.handle('search', async (e, keyword) => {
   if (idx) extra = matchAbbreviationsByIndex(keyword, idx.games);
   const exp = expandKeyword(keyword);
 
+  // 每站结果数上限（可配置，默认 10）
+  const limit = Math.max(1, Math.min(50, Number(loadSettings().resultLimit) || 10));
+
   // 会社识别（并行进行）：关键词若命中 VNDB 厂商，取该社作品
   const companyPromise = resolveCompanyWorks(keyword);
 
@@ -321,8 +328,8 @@ ipcMain.handle('search', async (e, keyword) => {
       try {
         const list =
           site.type === 'vndb'
-            ? await vndbSearch(keyword, net.fetch, extra)
-            : await htmlSearch(keyword, site, net.fetch, extra);
+            ? await vndbSearch(keyword, net.fetch, extra, limit)
+            : await htmlSearch(keyword, site, net.fetch, extra, limit);
         return { siteId: site.id, siteName: site.name, ok: true, count: list.length, results: list };
       } catch (err) {
         return { siteId: site.id, siteName: site.name, ok: false, error: String((err && err.message) || err) };
@@ -349,7 +356,7 @@ ipcMain.handle('search', async (e, keyword) => {
     if (company && company.works && company.works.length) {
       companyName = company.name;
       const enriched = await Promise.all(
-        out.map((r) => enrichSiteWithCompanyWorks(r, sites, company))
+        out.map((r) => enrichSiteWithCompanyWorks(r, sites, company, limit))
       );
       return { keyword, expanded: primary, companyName, results: enriched };
     }
@@ -360,8 +367,8 @@ ipcMain.handle('search', async (e, keyword) => {
   return { keyword, expanded: primary, companyName, results: out };
 });
 
-// 把会社作品补进某个网站的结果尾部（去重；shionlib 用本地索引，VNDB 直接附加，其余网站逐个搜索校验）
-async function enrichSiteWithCompanyWorks(siteResult, sites, company) {
+// 把会社作品补进某个网站的结果头部（去重；shionlib 用本地索引，VNDB 直接附加，其余网站逐个搜索校验）
+async function enrichSiteWithCompanyWorks(siteResult, sites, company, limit) {
   if (!siteResult || !siteResult.ok || !siteResult.results) return siteResult;
   const site = sites.find((s) => s.id === siteResult.siteId);
   if (!site) return siteResult;
@@ -376,11 +383,11 @@ async function enrichSiteWithCompanyWorks(siteResult, sites, company) {
       extra = shionlibWorksFromIndex(company.works);
       if (!extra.length) {
         // 索引未就绪时退回逐个搜索
-        extra = await htmlWorksForCompany(company.works.slice(0, 6), site);
+        extra = await htmlWorksForCompany(company.works.slice(0, 6), site, limit);
       }
     } else {
       // 其他普通网站：逐个作品搜索并校验
-      extra = await htmlWorksForCompany(company.works.slice(0, 6), site);
+      extra = await htmlWorksForCompany(company.works.slice(0, 6), site, limit);
     }
   } catch (e) {
     extra = [];
@@ -388,8 +395,8 @@ async function enrichSiteWithCompanyWorks(siteResult, sites, company) {
 
   const existingUrls = new Set(siteResult.results.map((x) => x.url));
   const newExtra = extra.filter((x) => !existingUrls.has(x.url));
-  // 会社作品排在该网站结果的最前面（优先级最高）
-  siteResult.results = [...newExtra, ...siteResult.results];
+  // 会社作品排在该网站结果的最前面（优先级最高），并受每站结果数上限约束
+  siteResult.results = [...newExtra, ...siteResult.results].slice(0, limit);
   siteResult.count = siteResult.results.length;
   return siteResult;
 }
@@ -425,11 +432,11 @@ function shionlibWorksFromIndex(works) {
 }
 
 // 在普通网站上逐个搜索公司作品（校验同名后才收录）
-async function htmlWorksForCompany(works, site) {
+async function htmlWorksForCompany(works, site, limit) {
   const out = [];
   const seenUrls = new Set();
   for (const w of works) {
-    const found = await searchWorkOnHtmlSite(w, site, net.fetch);
+    const found = await searchWorkOnHtmlSite(w, site, net.fetch, limit);
     for (const f of found) {
       if (!seenUrls.has(f.url)) {
         seenUrls.add(f.url);
@@ -480,6 +487,7 @@ ipcMain.handle('settings:set', (e, settings) => {
   }
   if (settings && settings.theme) s.theme = settings.theme;
   if (settings && typeof settings.panelOpacity === 'number') s.panelOpacity = settings.panelOpacity;
+  if (settings && typeof settings.resultLimit === 'number') s.resultLimit = settings.resultLimit;
   s.version = SETTINGS_VERSION;
   return saveSettings(s);
 });

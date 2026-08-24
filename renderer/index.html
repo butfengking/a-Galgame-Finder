@@ -12,10 +12,7 @@
 
   <div class="app">
     <header class="topbar">
-      <div class="topbar-left">
-        <div class="brand">Galgame 搜索</div>
-        <button id="btn-settings" class="ghost" type="button">设置背景</button>
-      </div>
+      <div class="brand">Galgame 搜索</div>
       <button id="btn-gear" class="ghost icon-btn" type="button" title="设置">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="3"></circle>
@@ -78,11 +75,23 @@
         </div>
         <div class="field">
           <label>遮罩深浅 <span id="overlay-val" class="muted"></span></label>
-          <input id="bg-overlay-range" type="range" min="0" max="100" step="1" value="25" />
+          <input id="bg-overlay-range" type="range" min="0" max="100" step="1" value="90" />
         </div>
         <div class="field">
           <label>界面透明度 <span id="panel-opacity-val" class="muted"></span></label>
           <input id="panel-opacity-range" type="range" min="30" max="100" step="1" value="85" />
+        </div>
+        <div class="field">
+          <label>每站结果数</label>
+          <select id="result-limit-select">
+            <option value="3">3</option>
+            <option value="5">5</option>
+            <option value="10" selected>10</option>
+            <option value="15">15</option>
+            <option value="20">20</option>
+            <option value="30">30</option>
+          </select>
+          <div class="muted hint">每个搜索源（网站）最多显示的结果条数。</div>
         </div>
         <div class="muted hint">遮罩会在背景上叠加一层半透明，让文字更易读。数值越大越暗。</div>
         <div class="field">
@@ -127,6 +136,7 @@
           <label>标题选择器（可选，在结果项内部）</label>
           <input id="site-title-selector" type="text" placeholder="例如：.title" />
         </div>
+        <div id="site-modal-error" class="modal-error hidden"></div>
         <div class="modal-actions">
           <button id="btn-save-site" type="button">保存</button>
         </div>

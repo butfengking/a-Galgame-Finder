@@ -184,12 +184,12 @@ function sameWork(resultTitle, workTitles) {
 }
 
 // 在普通网站上搜索某个作品：依次用 标题/别名 搜索，取通过同名校验的结果（最多 2 条）。
-async function searchWorkOnHtmlSite(work, site, fetchImpl) {
+async function searchWorkOnHtmlSite(work, site, fetchImpl, limit) {
   const workTitles = [work.title, work.alttitle, ...(work.aliases || [])].filter((t) => t && String(t).trim());
   const candidates = [...new Set(workTitles)].slice(0, 4);
   for (const c of candidates) {
     try {
-      const list = await fetchHtmlResults(c, site, fetchImpl);
+      const list = await fetchHtmlResults(c, site, fetchImpl, limit);
       const matches = list.filter((r) => sameWork(r.title, workTitles));
       if (matches.length) return matches.slice(0, 2).map((m) => ({ title: m.title, url: m.url }));
     } catch (e) {
@@ -291,7 +291,7 @@ function buildUrl(template, keyword) {
 }
 
 // 单次 VNDB API 查询，返回原始条目。
-async function vndbQuery(keyword, fetchImpl) {
+async function vndbQuery(keyword, fetchImpl, limit) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT);
   try {
@@ -304,7 +304,7 @@ async function vndbQuery(keyword, fetchImpl) {
       body: JSON.stringify({
         filters: ['search', '=', keyword],
         fields: 'id, title, alttitle',
-        results: MAX_RESULTS,
+        results: limit || MAX_RESULTS,
       }),
       signal: controller.signal,
     });
@@ -353,14 +353,14 @@ function rankVndb(items, keyword) {
 }
 
 // VNDB 搜索：按候选词依次查询（有结果即停止），合并去重后本地重排。
-async function vndbSearch(keyword, fetchImpl, extraQueries) {
+async function vndbSearch(keyword, fetchImpl, extraQueries, limit) {
   const queries = buildQueries(keyword, extraQueries);
   const merged = new Map();
   let lastErr = null;
   for (let i = 0; i < queries.length; i++) {
     if (i > 0 && merged.size > 0) break;
     try {
-      const list = await vndbQuery(queries[i], fetchImpl);
+      const list = await vndbQuery(queries[i], fetchImpl, limit);
       for (const it of list) merged.set(it.id, it);
     } catch (e) {
       lastErr = e;
@@ -368,13 +368,14 @@ async function vndbSearch(keyword, fetchImpl, extraQueries) {
   }
   if (!merged.size && lastErr) throw lastErr;
   return rankVndb([...merged.values()], keyword)
-    .slice(0, MAX_RESULTS)
+    .slice(0, limit || MAX_RESULTS)
     .map(({ score, ...it }) => it);
 }
 
 // 普通网页搜索：对候选词依次请求并合并去重；若存在展开词，则把标题命中展开词的结果排前面。
-async function htmlSearch(keyword, site, fetchImpl, extraQueries) {
+async function htmlSearch(keyword, site, fetchImpl, extraQueries, limit) {
   const queries = buildQueries(keyword, extraQueries);
+  const cap = limit || MAX_RESULTS;
   const seen = new Set();
   const out = [];
   let lastErr = null;
@@ -382,7 +383,7 @@ async function htmlSearch(keyword, site, fetchImpl, extraQueries) {
   for (let i = 0; i < queries.length; i++) {
     let list = [];
     try {
-      list = await fetchHtmlResults(queries[i], site, fetchImpl);
+      list = await fetchHtmlResults(queries[i], site, fetchImpl, limit);
       gotAny = gotAny || list.length > 0;
     } catch (e) {
       lastErr = e;
@@ -393,7 +394,7 @@ async function htmlSearch(keyword, site, fetchImpl, extraQueries) {
         out.push(it);
       }
     }
-    if (out.length >= MAX_RESULTS) break;
+    if (out.length >= cap) break;
   }
   if (!out.length && lastErr && !gotAny) throw lastErr;
 
@@ -406,10 +407,10 @@ async function htmlSearch(keyword, site, fetchImpl, extraQueries) {
     }
     out.sort((a, b) => b._boost - a._boost);
   }
-  return out.slice(0, MAX_RESULTS).map(({ _boost, ...it }) => it);
+  return out.slice(0, cap).map(({ _boost, ...it }) => it);
 }
 
-async function fetchHtmlResults(keyword, site, fetchImpl) {
+async function fetchHtmlResults(keyword, site, fetchImpl, limit) {
   const url = buildUrl(site.url, keyword);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT);
@@ -428,7 +429,7 @@ async function fetchHtmlResults(keyword, site, fetchImpl) {
   } finally {
     clearTimeout(timer);
   }
-  return extractResults(html, site, url, keyword);
+  return extractResults(html, site, url, keyword, limit);
 }
 
 function cleanTitle(text) {
@@ -464,7 +465,8 @@ function normalizeUrl(rawHref, baseUrl) {
 }
 
 // 从 HTML 中提取结果。site.selector 存在时用选择器精确提取，否则用通用启发式。
-function extractResults(html, site, pageUrl, keyword) {
+function extractResults(html, site, pageUrl, keyword, limit) {
+  const cap = limit || MAX_RESULTS;
   let root;
   try {
     root = parse(html);
@@ -508,7 +510,7 @@ function extractResults(html, site, pageUrl, keyword) {
       if (seen.has(abs)) continue;
       seen.add(abs);
       out.push({ title, url: abs });
-      if (out.length >= MAX_RESULTS) break;
+      if (out.length >= cap) break;
     }
     return out;
   }
@@ -536,7 +538,7 @@ function extractResults(html, site, pageUrl, keyword) {
     if (seen.has(c.url)) continue;
     seen.add(c.url);
     out.push({ title: c.title, url: c.url });
-    if (out.length >= MAX_RESULTS) break;
+    if (out.length >= cap) break;
   }
   return out;
 }

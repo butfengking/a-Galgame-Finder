@@ -11,7 +11,6 @@
     results: document.getElementById('results'),
     btnAddSite: document.getElementById('btn-add-site'),
     btnResetSites: document.getElementById('btn-reset-sites'),
-    btnSettings: document.getElementById('btn-settings'),
     btnGear: document.getElementById('btn-gear'),
 
     settingsModal: document.getElementById('settings-modal'),
@@ -24,6 +23,7 @@
     overlayVal: document.getElementById('overlay-val'),
     panelOpacityRange: document.getElementById('panel-opacity-range'),
     panelOpacityVal: document.getElementById('panel-opacity-val'),
+    resultLimitSelect: document.getElementById('result-limit-select'),
     btnUpdateIndex: document.getElementById('btn-update-index'),
     indexStatus: document.getElementById('index-status'),
 
@@ -36,6 +36,7 @@
     siteExampleHint: document.getElementById('site-example-hint'),
     siteSelector: document.getElementById('site-selector'),
     siteTitleSelector: document.getElementById('site-title-selector'),
+    siteModalError: document.getElementById('site-modal-error'),
     btnSaveSite: document.getElementById('btn-save-site'),
   };
 
@@ -84,6 +85,7 @@
     const alphaPct = Math.round((Number(settings.panelOpacity) || 0.85) * 100);
     els.panelOpacityRange.value = String(alphaPct);
     els.panelOpacityVal.textContent = alphaPct + '%';
+    els.resultLimitSelect.value = String(Number(settings.resultLimit) || 10);
     els.bgStatus.textContent = bg.mode === 'image' && bg.filename ? '已设置：' + bg.filename : '未设置';
   }
 
@@ -91,6 +93,7 @@
     settings.background.color = els.bgColor.value;
     settings.background.overlay = Number(els.overlayRange.value) / 100;
     settings.panelOpacity = Number(els.panelOpacityRange.value) / 100;
+    settings.resultLimit = Number(els.resultLimitSelect.value) || 10;
     settings = await api.setSettings(settings);
     applyBackground();
     syncSettingsForm();
@@ -282,6 +285,14 @@
     els.siteExampleHint.textContent = text;
   }
 
+  function showSiteError(msg) {
+    els.siteModalError.textContent = msg;
+    els.siteModalError.classList.remove('hidden');
+  }
+  function hideSiteError() {
+    els.siteModalError.classList.add('hidden');
+  }
+
   // ---------- 弹窗开关 ----------
   function openSettings() {
     syncSettingsForm();
@@ -315,6 +326,7 @@
     els.siteTitleSelector.value = site ? (site.titleSelector || '') : '';
     els.siteExampleKw.value = '';
     exampleKwAuto = false;
+    hideSiteError();
     if (!site) {
       const kw = els.keyword.value.trim();
       if (kw) {
@@ -342,7 +354,6 @@
     renderSites();
   });
 
-  els.btnSettings.addEventListener('click', openSettings);
   els.btnGear.addEventListener('click', openSettings);
   els.btnCloseSettings.addEventListener('click', closeSettings);
   els.settingsModal.addEventListener('click', (e) => {
@@ -398,6 +409,7 @@
     els.panelOpacityVal.textContent = els.panelOpacityRange.value + '%';
     saveBackgroundSettings();
   });
+  els.resultLimitSelect.addEventListener('change', saveBackgroundSettings);
 
   els.siteUrl.addEventListener('input', () => {
     clearTimeout(urlDetectTimer);
@@ -438,11 +450,18 @@
       } else {
         sites = await api.addSite(site);
       }
+      hideSiteError();
       closeSiteModal();
       renderSites();
     } catch (e) {
-      alert(e && e.message ? e.message : String(e));
+      // 用内联错误提示，避免 alert() 导致输入框失焦后无法输入的问题
+      showSiteError(e && e.message ? e.message : String(e));
     }
+  });
+
+  // 用户修改任一输入时清除错误提示
+  [els.siteName, els.siteUrl, els.siteExampleKw, els.siteSelector, els.siteTitleSelector].forEach((el) => {
+    el.addEventListener('input', hideSiteError);
   });
 
   // ---------- 标题库加载进度（左下角） ----------
