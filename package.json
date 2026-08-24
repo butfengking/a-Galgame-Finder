@@ -11,8 +11,7 @@
     "pack": "electron-builder --dir",
     "dist": "electron-builder --win portable",
     "dist:setup": "electron-builder --win nsis",
-    "dist:all": "electron-builder --win portable nsis",
-    "release": "node release.js"
+    "dist:all": "electron-builder --win portable nsis"
   },
   "dependencies": {
     "node-html-parser": "^9.0.1"
