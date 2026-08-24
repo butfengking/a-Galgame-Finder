@@ -344,6 +344,31 @@
         for (const item of r.results) {
           const li = document.createElement('li');
           li.appendChild(makeLink(item.title, item.url, item.image));
+          // Pixiv 作品：直接提供下载按钮（主进程按 ID 获取原图并保存）
+          const pm = String(item.url || '').match(/pixiv\.net\/artworks\/(\d+)/i);
+          if (pm) {
+            const dl = document.createElement('button');
+            dl.className = 'dl-btn';
+            dl.type = 'button';
+            dl.textContent = '下载';
+            dl.addEventListener('click', async () => {
+              if (dl.disabled) return;
+              dl.disabled = true;
+              dl.textContent = '下载中…';
+              try {
+                const res = await api.downloadPixivById({ id: pm[1] });
+                dl.textContent = res && res.ok ? '已保存 ' + res.files.length + ' 张' : '失败';
+                if (res && res.ok) dl.title = res.files[0];
+              } catch (err) {
+                dl.textContent = '失败';
+              }
+              setTimeout(() => {
+                dl.disabled = false;
+                dl.textContent = '下载';
+              }, 3000);
+            });
+            li.appendChild(dl);
+          }
           ul.appendChild(li);
         }
         body.appendChild(ul);

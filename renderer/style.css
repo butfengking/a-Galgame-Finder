@@ -333,7 +333,23 @@ button.danger:hover { border-color: var(--danger); }
 
 .result-list { list-style: none; margin: 0; padding: 6px; }
 
-.result-list li { margin: 0; }
+.result-list li { margin: 0; display: flex; align-items: center; gap: 8px; }
+
+.result-list li > a { flex: 1; min-width: 0; }
+
+.dl-btn {
+  flex-shrink: 0;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dl-btn:hover { background: var(--accent-hover); }
+.dl-btn:disabled { opacity: 0.7; cursor: default; }
 
 .result-list a {
   display: flex;
