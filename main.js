@@ -55,9 +55,10 @@ const DEFAULT_SETTINGS = {
   panelOpacity: 0.85, // 面板透明度 0.3 ~ 1
   resultLimit: 10, // 每个搜索源最多返回的结果数
   background: {
-    mode: 'color', // 'color' | 'image'
+    mode: 'color', // 'color' | 'image' | 'video'
     color: '#e9edf3',
-    image: '', // appbg:// URL
+    image: '', // appbg:// URL（图片/GIF）
+    video: '', // appbg:// URL（视频）
     filename: '',
     overlay: 0.9, // 遮罩深浅默认 90%，深色模式下背景不会过亮
   },
@@ -195,7 +196,14 @@ const MIME = {
   '.gif': 'image/gif',
   '.webp': 'image/webp',
   '.bmp': 'image/bmp',
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/mp4',
+  '.webm': 'video/webm',
+  '.ogv': 'video/ogg',
+  '.mov': 'video/quicktime',
 };
+
+const VIDEO_EXT = new Set(['.mp4', '.m4v', '.webm', '.ogv', '.mov']);
 
 function mimeOf(file) {
   return MIME[path.extname(file).toLowerCase()] || 'application/octet-stream';
@@ -501,9 +509,11 @@ ipcMain.handle('settings:set', (e, settings) => {
 ipcMain.handle('settings:pick-bg', async () => {
   const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
   const r = await dialog.showOpenDialog(win, {
-    title: '选择背景图片',
+    title: '选择背景（图片 / GIF / 视频）',
     properties: ['openFile'],
-    filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] }],
+    filters: [
+      { name: '图片 / GIF / 视频', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'mp4', 'm4v', 'webm', 'ogv', 'mov'] },
+    ],
   });
   if (r.canceled || !r.filePaths.length) return null;
   const src = r.filePaths[0];
@@ -513,8 +523,15 @@ ipcMain.handle('settings:pick-bg', async () => {
   const name = 'bg-' + Date.now() + ext;
   fs.copyFileSync(src, path.join(dir, name));
   const settings = loadSettings();
-  settings.background.mode = 'image';
-  settings.background.image = 'appbg://backgrounds/' + name;
+  if (VIDEO_EXT.has(ext)) {
+    settings.background.mode = 'video';
+    settings.background.video = 'appbg://backgrounds/' + name;
+    settings.background.image = '';
+  } else {
+    settings.background.mode = 'image';
+    settings.background.image = 'appbg://backgrounds/' + name;
+    settings.background.video = '';
+  }
   settings.background.filename = path.basename(src);
   saveSettings(settings);
   return settings;
@@ -524,6 +541,7 @@ ipcMain.handle('settings:clear-bg', () => {
   const settings = loadSettings();
   settings.background.mode = 'color';
   settings.background.image = '';
+  settings.background.video = '';
   settings.background.filename = '';
   saveSettings(settings);
   return settings;

@@ -56,11 +56,26 @@
     document.body.classList.toggle('dark', isDark);
     const bg = settings.background || {};
     const overlayEl = document.getElementById('bg-overlay');
+    const videoEl = document.getElementById('bg-video');
     document.body.style.backgroundColor = bg.color || (isDark ? '#1f2937' : '#e9edf3');
-    if (bg.mode === 'image' && bg.image) {
-      document.body.style.backgroundImage = 'url("' + bg.image + '")';
-    } else {
+    if (bg.mode === 'video' && bg.video) {
+      // 视频背景：用 <video> 元素垫底播放
       document.body.style.backgroundImage = 'none';
+      if (videoEl.getAttribute('src') !== bg.video) {
+        videoEl.setAttribute('src', bg.video);
+      }
+      videoEl.classList.remove('hidden');
+      videoEl.play().catch(() => {});
+    } else {
+      // 非视频：停止并隐藏视频
+      videoEl.pause();
+      videoEl.removeAttribute('src');
+      videoEl.classList.add('hidden');
+      if (bg.mode === 'image' && bg.image) {
+        document.body.style.backgroundImage = 'url("' + bg.image + '")';
+      } else {
+        document.body.style.backgroundImage = 'none';
+      }
     }
     const pct = Math.max(0, Math.min(1, Number(bg.overlay) || 0)).toFixed(2);
     overlayEl.style.background = isDark
@@ -86,7 +101,8 @@
     els.panelOpacityRange.value = String(alphaPct);
     els.panelOpacityVal.textContent = alphaPct + '%';
     els.resultLimitInput.value = String(Number(settings.resultLimit) || 10);
-    els.bgStatus.textContent = bg.mode === 'image' && bg.filename ? '已设置：' + bg.filename : '未设置';
+    els.bgStatus.textContent =
+      (bg.mode === 'image' || bg.mode === 'video') && bg.filename ? '已设置：' + bg.filename : '未设置';
   }
 
   async function saveBackgroundSettings() {

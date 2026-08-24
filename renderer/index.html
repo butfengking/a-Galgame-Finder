@@ -3,11 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' appbg: data:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' appbg: data:; media-src 'self' appbg:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
   <title>Galgame 搜索</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <video id="bg-video" class="hidden" muted loop playsinline autoplay></video>
   <div id="bg-overlay"></div>
 
   <div class="app">
@@ -62,10 +63,10 @@
           </div>
         </div>
         <div class="field">
-          <label>背景图片</label>
+          <label>背景（图片 / GIF / 视频）</label>
           <div class="row">
-            <button id="btn-pick-bg" type="button">选择图片</button>
-            <button id="btn-clear-bg" class="ghost" type="button">清除图片</button>
+            <button id="btn-pick-bg" type="button">选择文件</button>
+            <button id="btn-clear-bg" class="ghost" type="button">清除背景</button>
             <span id="bg-status" class="muted">未设置</span>
           </div>
         </div>
