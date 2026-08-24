@@ -1179,11 +1179,16 @@ ipcMain.handle('search', async (e, keyword, opts) => {
   // 若标题索引缺失/过期，触发后台构建（幂等；构建中不重复启动）
   ensureShionlibIndex();
 
-  // 通用中文缩写解析：标题索引（后台构建，未就绪时返回空，仅用词典展开）
-  let extra = [];
-  const idx = readIndexCache();
-  if (idx) extra = matchAbbreviationsByIndex(keyword, idx.games);
+  // 缩写解析：本地词典优先（大部分缩写已内置，离线可用）；
+  // 词典未命中时，才用联网下载的标题索引做通用中文缩写匹配作补充。
   const exp = expandKeyword(keyword);
+  let extra = [];
+  if (exp) {
+    extra = exp.expansions.filter((e) => e !== keyword); // 本地展开也喂给拓展站点/Pixiv 等
+  } else {
+    const idx = readIndexCache();
+    if (idx) extra = matchAbbreviationsByIndex(keyword, idx.games);
+  }
 
   // 每站结果数上限（可配置，默认 10，最高 300）
   const limit = Math.max(1, Math.min(300, Number(loadSettings().resultLimit) || 10));
