@@ -234,6 +234,24 @@ function buildQueries(keyword, extraQueries) {
   return qs.slice(0, 6);
 }
 
+// “拓展”站点：在关键词后追加 gal / 旮旯给木 / galgame / 二创 等词，用于在视频平台找二创
+const EXPAND_SUFFIXES = ['gal', '旮旯给木', 'galgame', '二创', '旮旯给木二创'];
+
+function buildExpandQueries(keyword, extraQueries) {
+  const raw = String(keyword || '').trim();
+  const qs = [raw];
+  for (const suf of EXPAND_SUFFIXES) {
+    const q = raw + suf;
+    if (!qs.includes(q)) qs.push(q);
+  }
+  if (Array.isArray(extraQueries)) {
+    for (const e of extraQueries) {
+      if (e !== raw && !qs.includes(e)) qs.push(e);
+    }
+  }
+  return qs.slice(0, 8);
+}
+
 // 用标题索引做通用中文缩写解析：对含中文的短词（2-5 字），按“首字相同 + 字符按顺序出现（子序列）”匹配游戏标题，
 // 返回命中最优的若干游戏的全名（各语言标题）作为展开查询词。
 function matchAbbreviationsByIndex(keyword, games) {
@@ -374,7 +392,7 @@ async function vndbSearch(keyword, fetchImpl, extraQueries, limit) {
 
 // 普通网页搜索：对候选词依次请求并合并去重；若存在展开词，则把标题命中展开词的结果排前面。
 async function htmlSearch(keyword, site, fetchImpl, extraQueries, limit) {
-  const queries = buildQueries(keyword, extraQueries);
+  const queries = site.expand ? buildExpandQueries(keyword, extraQueries) : buildQueries(keyword, extraQueries);
   const cap = limit || MAX_RESULTS;
   const seen = new Set();
   const out = [];
@@ -407,7 +425,121 @@ async function htmlSearch(keyword, site, fetchImpl, extraQueries, limit) {
     }
     out.sort((a, b) => b._boost - a._boost);
   }
+
+  // 拓展站点：抓取结果页（标题/简介/评论）与关键词比对，相似度高的排前面
+  if (site.expand && out.length) {
+    const scored = await scoreResultsByKeyword(out.slice(0, cap), keyword, fetchImpl);
+    return scored.slice(0, cap);
+  }
   return out.slice(0, cap).map(({ _boost, ...it }) => it);
+}
+
+// 抓取结果页的标题 / 简介 / 评论（Bilibili 视频页可拿到 aid，再取评论区）
+async function fetchResultTexts(url, fetchImpl) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT);
+  let html;
+  try {
+    const res = await fetchImpl(url, {
+      headers: { 'User-Agent': BROWSER_UA, 'Accept-Language': 'zh-CN,zh;q=0.9' },
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    html = await res.text();
+  } finally {
+    clearTimeout(timer);
+  }
+
+  let title = '';
+  let desc = '';
+  // Bilibili 视频页：从 __INITIAL_STATE__ 的 videoData 提取真实标题与简介
+  if (/bilibili\.com\/video/i.test(url)) {
+    const seg = html.indexOf('"videoData":{');
+    if (seg !== -1) {
+      const chunk = html.slice(seg, seg + 3000);
+      const unescape = (raw) => {
+        try {
+          return JSON.parse('"' + raw + '"');
+        } catch (e) {
+          return raw;
+        }
+      };
+      const mT = chunk.match(/"title":"((?:[^"\\]|\\.)*)"/);
+      if (mT) title = unescape(mT[1]);
+      const mD = chunk.match(/"desc":"((?:[^"\\]|\\.)*)"/);
+      if (mD) desc = unescape(mD[1]);
+    }
+  }
+  const mTitle = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+  if (!title && mTitle) title = mTitle[1].trim();
+  if (!desc) {
+    const mDesc =
+      html.match(/<meta[^>]+name="description"[^>]+content="([^"]*)"/i) ||
+      html.match(/<meta[^>]+property="og:description"[^>]+content="([^"]*)"/i) ||
+      html.match(/<meta[^>]+content="([^"]*)"[^>]+name="description"/i);
+    if (mDesc) desc = mDesc[1];
+  }
+
+  let comments = '';
+  if (/bilibili\.com/i.test(url)) {
+    const aid = (html.match(/"aid":(\d+)/) || [])[1];
+    if (aid) {
+      try {
+        const cr = await fetchImpl('https://api.bilibili.com/x/v2/reply?type=1&oid=' + aid + '&sort=2&ps=20', {
+          headers: { 'User-Agent': BROWSER_UA, 'Accept-Language': 'zh-CN,zh;q=0.9' },
+        });
+        if (cr.ok) {
+          const cj = await cr.json();
+          const replies = (cj.data && cj.data.replies) || [];
+          comments = replies.map((r) => (r.content && r.content.message) || '').join(' ');
+        }
+      } catch (e) {
+        /* 评论抓取失败不影响结果 */
+      }
+    }
+  }
+  return { title, desc, comments };
+}
+
+// 关键词与（标题+简介+评论）的相似度：关键词出现的位置与次数加权
+function computeSimilarity(keyword, texts) {
+  const kw = String(keyword || '').trim().toLowerCase();
+  if (!kw) return 1;
+  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]/g, '');
+  const kwNorm = norm(kw);
+  const title = String(texts.title || '').toLowerCase();
+  const desc = String(texts.desc || '').toLowerCase();
+  const comments = String(texts.comments || '').toLowerCase();
+  let score = 1; // 保底，避免抓取失败时无法区分
+  if (kwNorm && norm(title).includes(kwNorm)) score += 40;
+  if (kwNorm && norm(desc).includes(kwNorm)) score += 25;
+  if (kwNorm && norm(comments).includes(kwNorm)) score += 20;
+  if (kw && title.includes(kw)) score += 15;
+  if (kw && desc.includes(kw)) score += 10;
+  if (kw && comments.includes(kw)) score += 8;
+  return score;
+}
+
+async function scoreResultsByKeyword(results, keyword, fetchImpl) {
+  const CONC = 4;
+  const scored = [];
+  let idx = 0;
+  const workers = Array.from({ length: Math.min(CONC, results.length) }, async () => {
+    while (idx < results.length) {
+      const i = idx++;
+      let score = 0;
+      try {
+        const texts = await fetchResultTexts(results[i].url, fetchImpl);
+        score = computeSimilarity(keyword, texts);
+      } catch (e) {
+        score = 0;
+      }
+      scored.push({ ...results[i], _score: score });
+    }
+  });
+  await Promise.all(workers);
+  scored.sort((a, b) => b._score - a._score);
+  return scored.map(({ _score, ...it }) => it);
 }
 
 async function fetchHtmlResults(keyword, site, fetchImpl, limit) {
@@ -551,7 +683,10 @@ module.exports = {
   COMPANY_ALIASES,
   expandKeyword,
   buildQueries,
+  buildExpandQueries,
   buildUrl,
+  fetchResultTexts,
+  computeSimilarity,
   matchAbbreviationsByIndex,
   resolveCompanyAlias,
   producerMatches,

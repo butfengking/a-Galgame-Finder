@@ -36,6 +36,7 @@
     siteExampleHint: document.getElementById('site-example-hint'),
     siteSelector: document.getElementById('site-selector'),
     siteTitleSelector: document.getElementById('site-title-selector'),
+    siteExpand: document.getElementById('site-expand'),
     siteModalError: document.getElementById('site-modal-error'),
     btnSaveSite: document.getElementById('btn-save-site'),
   };
@@ -357,6 +358,7 @@
     els.siteUrl.value = site ? (site.url || '') : '';
     els.siteSelector.value = site ? (site.selector || '') : '';
     els.siteTitleSelector.value = site ? (site.titleSelector || '') : '';
+    els.siteExpand.checked = site ? !!site.expand : false;
     els.siteExampleKw.value = '';
     exampleKwAuto = false;
     hideSiteError();
@@ -476,6 +478,7 @@
       exampleKeyword: els.siteExampleKw.value.trim(),
       selector: els.siteSelector.value,
       titleSelector: els.siteTitleSelector.value,
+      expand: els.siteExpand.checked,
     };
     try {
       if (editingSiteId) {

@@ -130,6 +130,13 @@
           <label>标题选择器（可选，在结果项内部）</label>
           <input id="site-title-selector" type="text" placeholder="例如：.title" />
         </div>
+        <div class="field">
+          <label class="checkbox-label">
+            <input id="site-expand" type="checkbox" />
+            拓展（适用于非 galgame 搜索站，如视频平台）
+          </label>
+          <div class="muted hint">开启后搜索关键词会自动追加：gal、旮旯给木、galgame、二创、旮旯给木二创；并抓取结果页的标题、简介、评论区与关键词比对，相似度高的排前面。</div>
+        </div>
         <div id="site-modal-error" class="modal-error hidden"></div>
         <div class="modal-actions">
           <button id="btn-save-site" type="button">保存</button>

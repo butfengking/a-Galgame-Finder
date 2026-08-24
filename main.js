@@ -45,6 +45,17 @@ const DEFAULT_SITES = [
     enabled: true,
     builtin: true,
   },
+  {
+    id: 'bilibili',
+    name: '哔哩哔哩（视频·拓展）',
+    type: 'html',
+    url: 'https://search.bilibili.com/all?keyword={keyword}',
+    selector: '.bili-video-card a[href*="/video/BV"]',
+    titleSelector: 'img',
+    expand: true, // 拓展：搜索时自动追加 gal/旮旯给木/galgame/二创 等词，并抓标题/简介/评论排序
+    enabled: false,
+    builtin: true,
+  },
 ];
 
 const SETTINGS_VERSION = 4;
@@ -184,6 +195,7 @@ function validateSite(s) {
     url,
     selector: String(s.selector || '').trim(),
     titleSelector: String(s.titleSelector || '').trim(),
+    expand: !!s.expand,
     enabled: s.enabled !== false,
     builtin: false,
   };
@@ -297,6 +309,7 @@ ipcMain.handle('sites:update', (e, site) => {
   }
   merged.selector = String(merged.selector || '').trim();
   merged.titleSelector = String(merged.titleSelector || '').trim();
+  merged.expand = !!merged.expand;
   sites[idx] = merged;
   return saveSites(sites);
 });

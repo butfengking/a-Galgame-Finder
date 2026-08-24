@@ -394,6 +394,23 @@ button.danger:hover { border-color: var(--danger); }
 
 .field label { display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-dim); }
 
+.checkbox-label {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text) !important;
+  font-size: 14px !important;
+  margin-bottom: 6px;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .field input[type="text"],
 .field input[type="number"],
 .field input[type="color"] {
