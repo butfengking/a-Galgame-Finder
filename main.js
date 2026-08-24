@@ -93,6 +93,7 @@ const DEFAULT_SETTINGS = {
   theme: 'light', // 'light' | 'dark'
   panelOpacity: 0.85, // 面板透明度 0.3 ~ 1
   resultLimit: 10, // 每个搜索源最多返回的结果数
+  downloadDir: '', // 全局下载目录；留空则用系统“下载”文件夹
   background: {
     mode: 'color', // 'color' | 'image' | 'video'
     color: '#e9edf3',
@@ -175,12 +176,14 @@ function loadSettings() {
       if (data.theme) merged.theme = data.theme;
       if (typeof data.panelOpacity === 'number') merged.panelOpacity = data.panelOpacity;
       if (typeof data.resultLimit === 'number') merged.resultLimit = data.resultLimit;
+      if (typeof data.downloadDir === 'string') merged.downloadDir = data.downloadDir;
     } else if (data.version === 2 || data.version === 3) {
       // 旧版本迁移：仅此一次把过浅的遮罩默认修正为 90%，其余保留
       merged.background = { ...merged.background, ...data.background };
       if (data.theme) merged.theme = data.theme;
       if (typeof data.panelOpacity === 'number') merged.panelOpacity = data.panelOpacity;
       if (typeof data.resultLimit === 'number') merged.resultLimit = data.resultLimit;
+      if (typeof data.downloadDir === 'string') merged.downloadDir = data.downloadDir;
       merged.background.overlay = DEFAULT_SETTINGS.background.overlay;
     } else {
       // 更旧的版本：保留背景图片，颜色/遮罩/主题按新默认（浅色）重置
@@ -581,7 +584,7 @@ ipcMain.handle('open-in-app', (e, url) => {
           await sleep(1000);
         }
         if (!id) { makeBar('未识别到 Pixiv 作品页'); return; }
-        makeBar('Pixiv 作品 #' + id + '（原图将保存到 图片\\\\Pixiv\\\\）', '下载全部', true);
+        makeBar('Pixiv 作品 #' + id + '（原图将保存到下载目录）', '下载全部', true);
       })();
     `;
     win.webContents.executeJavaScript(code).catch(() => {});
@@ -612,8 +615,8 @@ ipcMain.handle('pixiv:download-by-id', async (e, payload) => {
   const urls = ((info.body && info.body.images) || []).map((x) => x.url).filter(Boolean);
   if (!urls.length) return { ok: false, message: '未找到图片地址' };
   const title = (info.body.title || payload.title || id).replace(/[\\/:*?"<>|]/g, '_').slice(0, 80);
-  // 2) 逐个下载原图
-  const base = path.join(app.getPath('pictures'), 'Pixiv');
+  // 2) 逐个下载原图到全局下载目录
+  const base = getDownloadDir();
   fs.mkdirSync(base, { recursive: true });
   const files = [];
   for (let i = 0; i < urls.length; i++) {
@@ -923,8 +926,29 @@ ipcMain.handle('settings:set', (e, settings) => {
   if (settings && settings.theme) s.theme = settings.theme;
   if (settings && typeof settings.panelOpacity === 'number') s.panelOpacity = settings.panelOpacity;
   if (settings && typeof settings.resultLimit === 'number') s.resultLimit = settings.resultLimit;
+  if (settings && typeof settings.downloadDir === 'string') s.downloadDir = settings.downloadDir;
   s.version = SETTINGS_VERSION;
   return saveSettings(s);
+});
+
+// 全局下载目录：留空用系统“下载”文件夹
+function getDownloadDir() {
+  const d = loadSettings().downloadDir;
+  return d && d.trim() ? d.trim() : app.getPath('downloads');
+}
+
+// 选择下载目录
+ipcMain.handle('settings:pick-download-dir', async () => {
+  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  const r = await dialog.showOpenDialog(win, {
+    title: '选择下载目录',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (r.canceled || !r.filePaths.length) return null;
+  const settings = loadSettings();
+  settings.downloadDir = r.filePaths[0];
+  saveSettings(settings);
+  return settings;
 });
 
 ipcMain.handle('settings:pick-bg', async () => {

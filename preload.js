@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('api', {
   setSettings: (settings) => ipcRenderer.invoke('settings:set', settings),
   pickBackgroundImage: () => ipcRenderer.invoke('settings:pick-bg'),
   clearBackgroundImage: () => ipcRenderer.invoke('settings:clear-bg'),
+  pickDownloadDir: () => ipcRenderer.invoke('settings:pick-download-dir'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   openInApp: (url) => ipcRenderer.invoke('open-in-app', url),
   downloadPixivById: (payload) => ipcRenderer.invoke('pixiv:download-by-id', payload),

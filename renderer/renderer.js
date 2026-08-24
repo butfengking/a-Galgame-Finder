@@ -24,6 +24,9 @@
     panelOpacityRange: document.getElementById('panel-opacity-range'),
     panelOpacityVal: document.getElementById('panel-opacity-val'),
     resultLimitInput: document.getElementById('result-limit-input'),
+    btnPickDlDir: document.getElementById('btn-pick-dl-dir'),
+    btnResetDlDir: document.getElementById('btn-reset-dl-dir'),
+    dlDirStatus: document.getElementById('dl-dir-status'),
     btnUpdateIndex: document.getElementById('btn-update-index'),
     indexStatus: document.getElementById('index-status'),
 
@@ -119,6 +122,9 @@
     els.panelOpacityRange.value = String(alphaPct);
     els.panelOpacityVal.textContent = alphaPct + '%';
     els.resultLimitInput.value = String(Number(settings.resultLimit) || 10);
+    els.dlDirStatus.textContent = settings.downloadDir && settings.downloadDir.trim()
+      ? '当前：' + settings.downloadDir
+      : '默认：系统下载文件夹';
     els.bgStatus.textContent =
       (bg.mode === 'image' || bg.mode === 'video') && bg.filename ? '已设置：' + bg.filename : '未设置';
   }
@@ -560,6 +566,18 @@
     saveBackgroundSettings();
   });
   els.resultLimitInput.addEventListener('change', saveBackgroundSettings);
+  els.btnPickDlDir.addEventListener('click', async () => {
+    const s = await api.pickDownloadDir();
+    if (s) {
+      settings = s;
+      syncSettingsForm();
+    }
+  });
+  els.btnResetDlDir.addEventListener('click', async () => {
+    settings.downloadDir = '';
+    settings = await api.setSettings(settings);
+    syncSettingsForm();
+  });
 
   els.siteUrl.addEventListener('input', () => {
     clearTimeout(urlDetectTimer);
