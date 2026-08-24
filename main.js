@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, Menu } = requ
 const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
+const { tify, sify } = require('chinese-conv'); // 简繁转换
 const {
   vndbSearch,
   htmlSearch,
@@ -444,6 +445,13 @@ async function pixivSearch(keyword, fetchImpl, extra, limit) {
   }
   for (const e of extra || []) {
     if (e && !candidates.includes(e)) candidates.push(e);
+  }
+  // 中文关键词：追加 简体/繁体 互转后的变体（Pixiv 标签多为日文繁体）
+  if (/[\u4e00-\u9fff]/.test(raw)) {
+    const t = tify(raw);
+    const s = sify(raw);
+    if (t && t !== raw && !candidates.includes(t)) candidates.push(t);
+    if (s && s !== raw && !candidates.includes(s)) candidates.push(s);
   }
 
   // 逐变体完整搜索（不去重、不因重复页提前停止，避免漏结果），最终只受结果数上限约束

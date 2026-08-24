@@ -14,6 +14,7 @@
     "dist:all": "electron-builder --win portable nsis"
   },
   "dependencies": {
+    "chinese-conv": "^4.0.0",
     "node-html-parser": "^9.0.1"
   },
   "devDependencies": {
