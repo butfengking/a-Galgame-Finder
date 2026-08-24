@@ -1,20 +1,21 @@
 @echo off
+chcp 936 >nul
 setlocal
 cd /d "%~dp0"
 
 where node >nul 2>nul
 if errorlevel 1 (
-  echo æœªæ£€æµ‹åˆ° Node.jsï¼Œè¯·å…ˆå®‰è£… Node.jsï¼šhttps://nodejs.org/
+  echo Î´¼ì²âµ½ Node.js£¬ÇëÏÈ°²×° Node.js£ºhttps://nodejs.org/
   pause
   exit /b 1
 )
 
 if not exist "node_modules\electron\dist\electron.exe" (
-  echo é¦–æ¬¡è¿è¡Œï¼Œæ­£åœ¨å®‰è£…ä¾èµ–ï¼Œè¯·ç¨å€™â€¦â€¦
+  echo Ê×´ÎÔËĞĞ£¬ÕıÔÚ°²×°ÒÀÀµ£¬ÇëÉÔºò¡­¡­
   set "NODE_OPTIONS=--use-system-ca"
   call npm.cmd install --no-audit --no-fund
   if errorlevel 1 (
-    echo ä¾èµ–å®‰è£…å¤±è´¥ï¼Œè¯·æ£€æŸ¥ç½‘ç»œåé‡è¯•ã€‚
+    echo ÒÀÀµ°²×°Ê§°Ü£¬Çë¼ì²éÍøÂçºóÖØÊÔ¡£
     pause
     exit /b 1
   )
