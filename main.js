@@ -425,36 +425,51 @@ function clearPixivCookie() {
   }
 }
 
-// Pixiv 搜索：官方 ajax 接口（需 PHPSESSID + Referer）
+// Pixiv 搜索：官方 ajax 接口（需 PHPSESSID + Referer），翻页拉满到上限
 async function pixivSearch(keyword, fetchImpl, extra, limit) {
   const cookie = readPixivCookie();
   if (!cookie) throw new Error('未登录 Pixiv：请在左侧 Pixiv 行点“登录”完成登录后再搜索');
   const cap = limit || 10;
   const kw = String(keyword || '').trim();
   const enc = encodeURIComponent(kw);
-  const url =
-    'https://www.pixiv.net/ajax/search/artworks/' +
-    enc +
-    '?word=' +
-    enc +
-    '&order=date_d&mode=all&p=1&s_mode=s_tag&type=all&lang=zh';
-  const res = await fetchImpl(url, {
-    headers: {
-      'User-Agent': BROWSER_UA,
-      Referer: 'https://www.pixiv.net/',
-      'Accept-Language': 'zh-CN,zh;q=0.9',
-      Cookie: 'PHPSESSID=' + cookie,
-    },
-  });
-  if (!res.ok) throw new Error('Pixiv HTTP ' + res.status);
-  const data = await res.json();
-  if (data.error) throw new Error(data.message || 'Pixiv 搜索失败');
-  const items = (data.body && data.body.illustManga && data.body.illustManga.data) || [];
-  return items.slice(0, cap).map((it) => ({
-    title: it.title,
-    url: 'https://www.pixiv.net/artworks/' + it.id,
-    image: it.url ? 'piximg://img/' + encodeURIComponent(it.url) : null,
-  }));
+  const results = [];
+  for (let p = 1; p <= 10 && results.length < cap; p++) {
+    const url =
+      'https://www.pixiv.net/ajax/search/artworks/' +
+      enc +
+      '?word=' +
+      enc +
+      '&order=date_d&mode=all&p=' +
+      p +
+      '&s_mode=s_tag&type=all&lang=zh';
+    const res = await fetchImpl(url, {
+      headers: {
+        'User-Agent': BROWSER_UA,
+        Referer: 'https://www.pixiv.net/',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+        Cookie: 'PHPSESSID=' + cookie,
+      },
+    });
+    if (!res.ok) {
+      if (results.length) break; // 已有结果时容错返回
+      throw new Error('Pixiv HTTP ' + res.status);
+    }
+    const data = await res.json();
+    if (data.error) {
+      if (results.length) break;
+      throw new Error(data.message || 'Pixiv 搜索失败');
+    }
+    const items = (data.body && data.body.illustManga && data.body.illustManga.data) || [];
+    if (!items.length) break;
+    for (const it of items) {
+      results.push({
+        title: it.title,
+        url: 'https://www.pixiv.net/artworks/' + it.id,
+        image: it.url ? 'piximg://img/' + encodeURIComponent(it.url) : null,
+      });
+    }
+  }
+  return results.slice(0, cap);
 }
 
 // Pixiv 图片代理：带登录 Cookie + Referer 抓取 i.pximg.net
@@ -747,8 +762,8 @@ ipcMain.handle('search', async (e, keyword) => {
   if (idx) extra = matchAbbreviationsByIndex(keyword, idx.games);
   const exp = expandKeyword(keyword);
 
-  // 每站结果数上限（可配置，默认 10）
-  const limit = Math.max(1, Math.min(50, Number(loadSettings().resultLimit) || 10));
+  // 每站结果数上限（可配置，默认 10，最高 300）
+  const limit = Math.max(1, Math.min(300, Number(loadSettings().resultLimit) || 10));
 
   // 会社识别（并行进行）：关键词若命中 VNDB 厂商，取该社作品
   const companyPromise = resolveCompanyWorks(keyword);

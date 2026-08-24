@@ -310,36 +310,51 @@ function buildUrl(template, keyword) {
   return url;
 }
 
-// 单次 VNDB API 查询，返回原始条目。
+// VNDB API 查询：支持翻页（API 单次上限 100，需要更多时按 page 翻页）
 async function vndbQuery(keyword, fetchImpl, limit) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT);
-  try {
-    const res = await fetchImpl('https://api.vndb.org/kana/vn', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'galgame-finder/1.0',
-      },
-      body: JSON.stringify({
-        filters: ['search', '=', keyword],
-        fields: 'id, title, alttitle, image.url',
-        results: limit || MAX_RESULTS,
-      }),
-      signal: controller.signal,
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+  const want = limit || MAX_RESULTS;
+  const perPage = Math.min(want, 100);
+  const all = [];
+  let page = 1;
+  while (all.length < want) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT);
+    let res;
+    try {
+      res = await fetchImpl('https://api.vndb.org/kana/vn', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'galgame-finder/1.0',
+        },
+        body: JSON.stringify({
+          filters: ['search', '=', keyword],
+          fields: 'id, title, alttitle, image.url',
+          results: perPage,
+          page,
+        }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) {
+      if (all.length) break; // 已有部分结果时容错返回
+      throw new Error('HTTP ' + res.status);
+    }
     const data = await res.json();
-    return (data.results || []).map((r) => ({
+    const items = (data.results || []).map((r) => ({
       id: r.id,
       title: r.alttitle ? r.title + '（' + r.alttitle + '）' : r.title,
       alttitle: r.alttitle || '',
       url: 'https://vndb.org/' + r.id,
       image: (r.image && r.image.url) || null,
     }));
-  } finally {
-    clearTimeout(timer);
+    if (!items.length) break;
+    all.push(...items);
+    page++;
   }
+  return all.slice(0, want);
 }
 
 // 本地重排 VNDB 结果：标题精确/前缀/包含、以及首字母缩写匹配优先，避免缩写搜索时无关结果排前面。

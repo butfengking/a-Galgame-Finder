@@ -134,7 +134,7 @@
     settings.background.overlay = Number(els.overlayRange.value) / 100;
     settings.panelOpacity = Number(els.panelOpacityRange.value) / 100;
     const v = parseInt(els.resultLimitInput.value, 10);
-    settings.resultLimit = Math.max(1, Math.min(50, isNaN(v) ? 10 : v));
+    settings.resultLimit = Math.max(1, Math.min(300, isNaN(v) ? 10 : v));
     els.resultLimitInput.value = String(settings.resultLimit);
     settings = await api.setSettings(settings);
     applyBackground();
