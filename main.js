@@ -446,12 +446,11 @@ async function pixivSearch(keyword, fetchImpl, extra, limit) {
     if (e && !candidates.includes(e)) candidates.push(e);
   }
 
-  const seenIds = new Set();
+  // 逐变体完整搜索（不去重、不因重复页提前停止，避免漏结果），最终只受结果数上限约束
   const results = [];
   for (const q of candidates) {
-    if (results.length >= cap) break;
     const enc = encodeURIComponent(q);
-    for (let p = 1; p <= 10 && results.length < cap; p++) {
+    for (let p = 1; p <= 5 && results.length < cap; p++) {
       const url =
         'https://www.pixiv.net/ajax/search/artworks/' +
         enc +
@@ -479,19 +478,14 @@ async function pixivSearch(keyword, fetchImpl, extra, limit) {
       }
       const items = (data.body && data.body.illustManga && data.body.illustManga.data) || [];
       if (!items.length) break;
-      let added = 0;
       for (const it of items) {
         if (results.length >= cap) break;
-        if (seenIds.has(it.id)) continue;
-        seenIds.add(it.id);
         results.push({
           title: it.title,
           url: 'https://www.pixiv.net/artworks/' + it.id,
           image: it.url ? 'piximg://img/' + encodeURIComponent(it.url) : null,
         });
-        added++;
       }
-      if (added === 0) break; // 本页全是重复结果，无需继续翻页
     }
   }
   return results.slice(0, cap);
