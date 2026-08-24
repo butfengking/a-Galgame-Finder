@@ -237,18 +237,19 @@ function buildQueries(keyword, extraQueries) {
 // “拓展”站点：在关键词后追加 gal / 旮旯给木 / galgame / 二创 等词，用于在视频平台找二创
 const EXPAND_SUFFIXES = ['gal', '旮旯给木', 'galgame', '二创', '旮旯给木二创'];
 
+// 拓展查询：gal 后缀词排最前（优先找二创），原关键词放最后（仅补位，避免无关结果占满）
 function buildExpandQueries(keyword, extraQueries) {
   const raw = String(keyword || '').trim();
-  const qs = [raw];
+  const qs = [];
   for (const suf of EXPAND_SUFFIXES) {
-    const q = raw + suf;
-    if (!qs.includes(q)) qs.push(q);
+    qs.push(raw + suf);
   }
   if (Array.isArray(extraQueries)) {
     for (const e of extraQueries) {
-      if (e !== raw && !qs.includes(e)) qs.push(e);
+      if (!qs.includes(e)) qs.push(e);
     }
   }
+  qs.push(raw);
   return qs.slice(0, 8);
 }
 
@@ -416,8 +417,8 @@ async function htmlSearch(keyword, site, fetchImpl, extraQueries, limit) {
   }
   if (!out.length && lastErr && !gotAny) throw lastErr;
 
-  // 有展开词时，标题包含任一展开词的结果排前面（让缩写目标置顶）
-  if (queries.length > 1) {
+  // 有展开词时，标题包含任一展开词的结果排前面（让缩写目标置顶；拓展站点交给后续智能排序）
+  if (!site.expand && queries.length > 1) {
     const lowers = queries.slice(1).map((q) => String(q).toLowerCase());
     for (const it of out) {
       const tl = String(it.title || '').toLowerCase();
