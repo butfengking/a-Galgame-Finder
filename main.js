@@ -95,6 +95,7 @@ const DEFAULT_SETTINGS = {
   panelOpacity: 0.85, // 面板透明度 0.3 ~ 1
   resultLimit: 10, // 每个搜索源最多返回的结果数
   downloadDir: '', // 全局下载目录；留空则用系统“下载”文件夹
+  personMode: false, // 人名搜索开关：自动展开 姓/名/姓名 变体（所有网站生效，Pixiv 另显示人物选择器）
   proxy: { enabled: false, type: 'http', host: '127.0.0.1', port: 7890 }, // 仅 Pixiv 域名走代理
   background: {
     mode: 'color', // 'color' | 'image' | 'video'
@@ -179,6 +180,7 @@ function loadSettings() {
       if (typeof data.panelOpacity === 'number') merged.panelOpacity = data.panelOpacity;
       if (typeof data.resultLimit === 'number') merged.resultLimit = data.resultLimit;
       if (typeof data.downloadDir === 'string') merged.downloadDir = data.downloadDir;
+      if (typeof data.personMode === 'boolean') merged.personMode = data.personMode;
       if (data.proxy && typeof data.proxy === 'object') merged.proxy = { ...merged.proxy, ...data.proxy };
     } else if (data.version === 2 || data.version === 3) {
       // 旧版本迁移：仅此一次把过浅的遮罩默认修正为 90%，其余保留
@@ -430,35 +432,41 @@ function clearPixivCookie() {
 }
 
 // Pixiv 搜索：官方 ajax 接口（需 PHPSESSID + Referer），翻页拉满到上限
-async function pixivSearch(keyword, fetchImpl, extra, limit, refine) {
+// 人名搜索候选词：原词 + 缩写/索引展开 + 简体/繁体变体（去重，最多 6 个）
+function personCandidates(keyword, extra) {
+  const raw = String(keyword || '').trim();
+  const out = [raw];
+  const exp = expandKeyword(raw);
+  if (exp) {
+    for (const e of exp.expansions) {
+      if (e && !out.includes(e)) out.push(e);
+    }
+  }
+  for (const e of extra || []) {
+    if (e && !out.includes(e)) out.push(e);
+  }
+  if (/[\u4e00-\u9fff]/.test(raw)) {
+    const t = tify(raw);
+    const s = sify(raw);
+    if (t && t !== raw && !out.includes(t)) out.push(t);
+    if (s && s !== raw && !out.includes(s)) out.push(s);
+  }
+  return out.slice(0, 6);
+}
+
+async function pixivSearch(keyword, fetchImpl, extra, limit, refine, personMode) {
   const cookie = readPixivCookie();
   if (!cookie) throw new Error('未登录 Pixiv：请在左侧 Pixiv 行点“登录”完成登录后再搜索');
   const cap = limit || 10;
   const raw = String(keyword || '').trim();
   // 候选查询：原词 + 缩写/全称展开 + 索引展开（覆盖 缩写/全称/日英中/繁简 变体）
-  const candidates = [raw];
-  const exp = expandKeyword(raw);
-  if (exp) {
-    for (const e of exp.expansions) {
-      if (e && !candidates.includes(e)) candidates.push(e);
-    }
-  }
-  for (const e of extra || []) {
-    if (e && !candidates.includes(e)) candidates.push(e);
-  }
-  // 中文关键词：追加 简体/繁体 互转后的变体（Pixiv 标签多为日文繁体）
-  if (/[\u4e00-\u9fff]/.test(raw)) {
-    const t = tify(raw);
-    const s = sify(raw);
-    if (t && t !== raw && !candidates.includes(t)) candidates.push(t);
-    if (s && s !== raw && !candidates.includes(s)) candidates.push(s);
-  }
+  const candidates = personCandidates(raw, extra);
 
   // 人名搜索：因为人名分 姓/名，搜姓或名时 Pixiv 会返回“相关标签”（如搜 莓华 → 御園莓華）。
-  // 先搜原词第 1 页：若某个简体/繁体变体是某相关标签的子串（短中文片段 = 人名），
-  // 进入人名模式 —— 把完整人名标签加入队列，按配额轮流呈现 名/姓/姓名，再补满上限。
-  // 非人名搜索（无扩展、词非短中文、系列/公司名、或原词直搜已有大量结果）不进入人名模式。
-  // 公司/系列后缀标记：相关标签以此结尾（柚子社、電撃文庫 等）判定为系列/公司，不是人名
+  // 由搜索框下方的“人名搜索”复选框手动开启（personMode），不再自动识别 —— 勾选后：
+  // 把包含该名/姓片段的完整人名标签加入队列，按配额轮流呈现 名/姓/姓名，再补满上限。
+  // 未勾选时不做任何相关标签扩展（不弹人物选择器）。
+  // 公司/系列后缀标记：相关标签以此结尾（柚子社、電撃文庫 等）判定为系列/公司，不进人名队列
   const NAME_MARKER_RE =
     /(社|屋|組|组|団|团|部|会|祭|展|協会|协会|委員会|委员会|製作|制作|工房|工坊|文庫|文库|書店|书店|ワークス|Works|works|スタジオ|Studio|studio|プロダクション|Production|production|同好会|同人誌)$/;
   const results = [];
@@ -560,8 +568,7 @@ async function pixivSearch(keyword, fetchImpl, extra, limit, refine) {
   let quota = 0;
   const variants = [...new Set([raw, tify(raw), sify(raw)].filter(Boolean))];
   const rawBody = await fetchPage(raw, 1);
-  const rawTotal = (rawBody.illustManga && rawBody.illustManga.total) || 0;
-  if (Array.isArray(rawBody.relatedTags)) {
+  if (personMode && Array.isArray(rawBody.relatedTags)) {
     const relevant = rawBody.relatedTags.filter(
       (rt) =>
         typeof rt === 'string' &&
@@ -569,8 +576,8 @@ async function pixivSearch(keyword, fetchImpl, extra, limit, refine) {
         !NAME_MARKER_RE.test(rt) &&
         variants.some((v) => rt.length > v.length && rt.includes(v))
     );
-    // 三道闸门：短中文片段 + 有完整人名相关标签 + 原词直搜结果很少（否则是系列/常用词，不弹人物选择器）
-    if (relevant.length && raw.length <= 3 && /[\u4e00-\u9fff]/.test(raw) && rawTotal < 30) {
+    // 手动开启人名搜索：不做自动识别（不设长度/结果量闸门），只过滤系列/公司后缀
+    if (relevant.length) {
       nameMode = true;
       quota = Math.max(2, Math.floor(cap / Math.max(2, relevant.length + 1)));
       for (const rt of relevant) {
@@ -582,7 +589,9 @@ async function pixivSearch(keyword, fetchImpl, extra, limit, refine) {
       }
     }
   }
-  pushItems(raw, (rawBody.illustManga && rawBody.illustManga.data) || []);
+  const rawItems = (rawBody.illustManga && rawBody.illustManga.data) || [];
+  if (nameMode) pushItems(raw, rawItems.slice(0, quota)); // 人名模式：原词也受配额约束，防止占满上限饿死其他姓名变体
+  else pushItems(raw, rawItems);
 
   // 阶段1：每人名变体按配额贡献结果（保证 名/姓/姓名 都呈现）；阶段2：补满上限
   let phase = 1;
@@ -1027,9 +1036,31 @@ ipcMain.handle('sites:reset', () => {
 });
 
 // ---------- 搜索 IPC ----------
+// 人名模式下的非 Pixiv 站点搜索：把 姓名变体（原词/缩写/简繁等）逐个在该站搜索，按网址去重合并
+async function personSearchSite(keyword, site, fetchImpl, extra, limit) {
+  const qs = personCandidates(keyword, extra);
+  const seen = new Set();
+  const out = [];
+  for (const q of qs) {
+    let list;
+    if (site.type === 'vndb') list = await vndbSearch(q, fetchImpl, [], limit);
+    else if (site.type === 'wallpaper') list = await wallpaperSearch(q, fetchImpl, [], limit);
+    else list = await htmlSearch(q, site, fetchImpl, [], limit);
+    for (const it of list || []) {
+      if (out.length >= limit) break;
+      if (seen.has(it.url)) continue;
+      seen.add(it.url);
+      out.push(it);
+    }
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 ipcMain.handle('search', async (e, keyword, opts) => {
   keyword = String(keyword || '').trim();
   if (!keyword) return { error: '请输入要查找的关键词' };
+  const personMode = !!(opts && opts.personMode);
 
   // 人物选择器：勾选若干完整人名标签时，只精确搜索这些标签对应的 Pixiv 站点
   const refineOpt = opts && opts.pixivRefine && typeof opts.pixivRefine === 'object' ? opts.pixivRefine : null;
@@ -1082,9 +1113,12 @@ ipcMain.handle('search', async (e, keyword, opts) => {
         let list;
         let pixivTags;
         if (site.type === 'pixiv') {
-          const r = await pixivSearch(keyword, net.fetch, extra, limit);
+          const r = await pixivSearch(keyword, net.fetch, extra, limit, false, personMode);
           list = r.items;
           pixivTags = r.tags;
+        } else if (personMode) {
+          // 人名模式对非 Pixiv 站同样生效：各姓名变体逐个搜索后按网址去重合并
+          list = await personSearchSite(keyword, site, net.fetch, extra, limit);
         } else if (site.type === 'vndb') {
           list = await vndbSearch(keyword, net.fetch, extra, limit);
         } else if (site.type === 'wallpaper') {
@@ -1257,6 +1291,7 @@ ipcMain.handle('settings:set', (e, settings) => {
   if (settings && typeof settings.panelOpacity === 'number') s.panelOpacity = settings.panelOpacity;
   if (settings && typeof settings.resultLimit === 'number') s.resultLimit = settings.resultLimit;
   if (settings && typeof settings.downloadDir === 'string') s.downloadDir = settings.downloadDir;
+  if (settings && typeof settings.personMode === 'boolean') s.personMode = settings.personMode;
   if (settings && settings.proxy && typeof settings.proxy === 'object') s.proxy = { ...s.proxy, ...settings.proxy };
   s.version = SETTINGS_VERSION;
   const saved = saveSettings(s);

@@ -6,6 +6,7 @@
   const els = {
     keyword: document.getElementById('keyword'),
     btnSearch: document.getElementById('btn-search'),
+    optPerson: document.getElementById('opt-person'),
     siteList: document.getElementById('site-list'),
     status: document.getElementById('status'),
     results: document.getElementById('results'),
@@ -62,6 +63,7 @@
   const collapsedSites = new Set(); // 本次会话中收起的结果分组
   const pixivTagsBySite = new Map(); // Pixiv 人物选择器候选（siteId -> 完整人名标签列表）
   const refinedTagsBySite = new Map(); // Pixiv 当前勾选的人物标签（siteId -> Set）
+  const refinedSites = new Set(); // 已被人物精确搜索替换结果的站点（其选择器用缓存候选渲染）
   let lastPayload = null; // 最近一次搜索结果（用于人物精确搜索后局部刷新）
   let lastKeyword = ''; // 最近一次搜索关键词
 
@@ -359,7 +361,7 @@
       // Pixiv 人物选择器：搜索到多个完整人名时，显示候选人物标签，点选后只搜该人物
       // Pixiv 人物选择器（复选框多选）：勾选若干完整人名，只显示这些人物（同名角色）的作品；
       // 一个都不勾 = 全部同名角色的混合结果
-      const charTags = r.pixivTags && r.pixivTags.length ? r.pixivTags : pixivTagsBySite.get(r.siteId);
+      const charTags = r.pixivTags && r.pixivTags.length ? r.pixivTags : refinedSites.has(r.siteId) ? pixivTagsBySite.get(r.siteId) : null;
       if (r.ok && charTags && charTags.length) {
         pixivTagsBySite.set(r.siteId, charTags);
         const checked = refinedTagsBySite.get(r.siteId) || new Set();
@@ -375,11 +377,20 @@
           try {
             const p = nextChecked.size
               ? await api.search(lastKeyword, { pixivRefine: { siteId: r.siteId, tags: [...nextChecked] } })
-              : await api.search(lastKeyword); // 全部取消：恢复混合结果
+              : await api.search(lastKeyword, { personMode: els.optPerson.checked }); // 全部取消：恢复混合结果
             if (p && Array.isArray(p.results) && p.results.length) {
-              const entry = p.results[0];
-              lastPayload.results = lastPayload.results.map((x) => (x.siteId === entry.siteId ? entry : x));
-              renderResults(lastPayload);
+              if (nextChecked.size) {
+                refinedSites.add(r.siteId);
+                const entry = p.results[0];
+                lastPayload.results = lastPayload.results.map((x) => (x.siteId === entry.siteId ? entry : x));
+                renderResults(lastPayload);
+              } else {
+                // 恢复正常搜索：整体替换，清空所有选择器缓存，避免显示过期候选
+                pixivTagsBySite.clear();
+                refinedSites.clear();
+                lastPayload = p;
+                renderResults(p);
+              }
             }
           } catch (e) {
             els.status.textContent = '搜索出错：' + (e && e.message ? e.message : e);
@@ -479,8 +490,10 @@
     els.results.textContent = '';
     lastKeyword = kw;
     refinedTagsBySite.clear();
+    pixivTagsBySite.clear();
+    refinedSites.clear();
     try {
-      const payload = await api.search(kw);
+      const payload = await api.search(kw, { personMode: els.optPerson.checked });
       lastPayload = payload;
       renderResults(payload);
     } catch (e) {
@@ -761,6 +774,11 @@
     try {
       sites = await api.listSites();
       settings = await api.getSettings();
+      // 人名搜索开关：从设置恢复，勾选状态持久化
+      els.optPerson.checked = !!settings.personMode;
+      els.optPerson.addEventListener('change', async () => {
+        settings = await api.setSettings({ ...(settings || {}), personMode: els.optPerson.checked });
+      });
       renderSites();
       applyBackground();
       wireIndexProgress();

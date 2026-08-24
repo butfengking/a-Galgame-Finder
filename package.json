@@ -1,6 +1,6 @@
 {
   "name": "galgame-finder",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "在指定网站查找 galgame 的桌面应用",
   "author": "local",
   "license": "MIT",

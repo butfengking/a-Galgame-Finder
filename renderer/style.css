@@ -134,6 +134,24 @@ body {
 
 .searchbar input::placeholder { color: var(--text-dim); }
 
+/* 搜索框下方：人名搜索开关 */
+.search-opts {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px 6px;
+}
+.opt-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.opt-label input { margin: 0; accent-color: var(--accent); cursor: pointer; }
+
 /* ---------- 按钮 ---------- */
 button {
   font-family: inherit;
