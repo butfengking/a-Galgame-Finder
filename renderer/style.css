@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light; /* 让原生控件（下拉列表等）跟随浅色主题 */
   --text: #2b3440;
   --text-dim: #68717e;
   --panel: rgba(255, 255, 255, 0.85); /* 面板底色（透明度由 JS 按设置动态覆盖） */
@@ -16,6 +17,7 @@
 }
 
 body.dark {
+  color-scheme: dark; /* 深色模式下原生控件用深色配色，下拉列表选项文字才不会看不见 */
   --text: #eef2f7;
   --text-dim: #aeb8c4;
   --panel: rgba(24, 30, 40, 0.8);
@@ -395,6 +397,11 @@ button.danger:hover { border-color: var(--danger); }
 }
 
 .field select { cursor: pointer; }
+
+.field select option {
+  color: var(--text);
+  background-color: var(--panel-solid);
+}
 
 .field input[type="text"]:focus,
 .field select:focus { border-color: var(--accent); }
