@@ -56,9 +56,11 @@
   let lastPayload = null; // 最近一次搜索结果，用于切换模式后重新渲染
   const collapsedSites = new Set(); // 本次会话中收起的结果分组
 
-  // 合并模式下去重关键字：仅“显示标题完全相同”（忽略大小写）才合并，不做模糊匹配
-  function titleKey(s) {
-    return String(s || '').trim().toLowerCase() || null;
+  // 标题归一化（合并模式下去重用）
+  function normTitle(s) {
+    return String(s || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\u4e00-\u9fff]+/g, '');
   }
 
   // ---------- 主题与背景 ----------
@@ -271,14 +273,14 @@
       els.status.textContent = payload.error;
       return;
     }
-    // 仅按“显示标题完全相同（忽略大小写）”去重；所有不同结果完整保留，不缩减
+    // 按标题归一化合并同一结果在不同网站的条目
     const map = new Map();
     let totalLinks = 0;
     for (const r of payload.results) {
       if (!r.ok || !Array.isArray(r.results)) continue;
       for (const item of r.results) {
         totalLinks++;
-        const key = titleKey(item.title) || item.url;
+        const key = normTitle(item.title) || item.url;
         let entry = map.get(key);
         if (!entry) {
           entry = { title: item.title, sites: [] };
