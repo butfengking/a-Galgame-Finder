@@ -220,6 +220,87 @@ const ABBREVIATIONS = {
   尸体派对: ['Corpse Party', 'コープスパーティー'],
   corpse: ['Corpse Party', 'コープスパーティー'],
   katawa: ['Katawa Shoujo'],
+  // ---------- 更多厂商/系列 ----------
+  // FAVORITE
+  五彩斑斓: ['Irotoridori no Sekai', 'いろとりどりのセカイ', '五彩斑斓的世界'],
+  五彩斑斓的世界: ['Irotoridori no Sekai', 'いろとりどりのセカイ'],
+  星空的记忆: ['Hoshizora no Memoria', '星空のメモリア'],
+  星空回忆: ['Hoshizora no Memoria', '星空のメモリア'],
+  hoshimemo: ['Hoshizora no Memoria'],
+  // SAGA PLANETS
+  初雪樱: ['Hatsuyuki Sakura', 'はつゆきさくら'],
+  初雪: ['Hatsuyuki Sakura', 'はつゆきさくら'],
+  花咲workspring: ['Hanasaki Workspring', '花咲ワークスプリング'],
+  金辉恋曲四重奏: ['Kinkoi', '金色ラブリッチェ'],
+  kinkoi: ['Kinkoi', '金色ラブリッチェ'],
+  // Lump of Sugar
+  游魂: ['Tayutama', 'タユタマ'],
+  游魂2: ['Tayutama 2', 'タユタマ2'],
+  タユタマ: ['Tayutama', 'タユタマ'],
+  // Purple software
+  天津罪: ['Amatsutsumi', 'アマツツミ'],
+  // minori
+  天使不在的十二月: ['Tenshi no Inai Juunigatsu', '天使のいない十二月'],
+  天使不在的12月: ['Tenshi no Inai Juunigatsu', '天使のいない十二月'],
+  // Innocent Grey
+  恋狱: ['Kartagra', 'カルタグラ 〜ツキ狂イノ病〜'],
+  壳虚天: ['Kara no Shoujo', '殻ノ少女'],
+  // Nitro+
+  尘骸魔京: ['Jinkai Makyou', '塵骸魔京'],
+  幻灵镇魂曲: ['Phantom -PHANTOM OF INFERNO-'],
+  // Liar-soft
+  腐姬: ['Kusarihime', '腐り姫'],
+  // Alicesoft
+  母烂漫: ['Haha Ranman', '母爛漫'],
+  // Eushully
+  神采: ['Kamidori Alchemy Meister', '神采りアルケミーマイスター'],
+  神采り: ['Kamidori Alchemy Meister', '神采りアルケミーマイスター'],
+  天结: ['Amayui Castle Meister', '天結いキャッスルマイスター'],
+  天结城堡大师: ['Amayui Castle Meister', '天結いキャッスルマイスター'],
+  // 八月社
+  千之刃涛: ['Sen no Hatou, Tsukishima no Kouki', '千の刃濤、桃花染の皇姫'],
+  千之刃涛桃花染之皇姬: ['Sen no Hatou, Tsukishima no Kouki', '千の刃濤、桃花染の皇姫'],
+  桃花染: ['Sen no Hatou, Tsukishima no Kouki', '千の刃濤、桃花染の皇姫'],
+  // GIGA / AKABEiSOFT2
+  少女爱上姐姐: ['Otome wa Oneesama ni Koishiteru', '乙女はお姉さまに恋してる'],
+  // 其他经典
+  秋之回忆: ['Memories Off', 'メモリーズオフ'],
+  交响乐之雨: ['Symphonic Rain', 'シンフォニック＝レイン'],
+  弹丸论破: ['Danganronpa', 'ダンガンロンパ'],
+  枪弹辩驳: ['Danganronpa', 'ダンガンロンパ'],
+  弹丸: ['Danganronpa', 'ダンガンロンパ'],
+  danganronpa: ['Danganronpa', 'ダンガンロンパ'],
+  // ---------- 知名角色 -> 所属作品（顺带搜到作品） ----------
+  小木曾雪菜: ['WHITE ALBUM 2', '白色相簿2'],
+  小木曽雪菜: ['WHITE ALBUM 2', '白色相簿2'],
+  冬马和纱: ['WHITE ALBUM 2', '白色相簿2'],
+  冬馬かずさ: ['WHITE ALBUM 2', '白色相簿2'],
+  丛雨: ['Senren Banka', '千恋＊万花'],
+  叢雨: ['Senren Banka', '千恋＊万花'],
+  枣铃: ['Little Busters!'],
+  棗鈴: ['Little Busters!'],
+  观铃: ['AIR'],
+  神尾观铃: ['AIR'],
+  神尾観鈴: ['AIR'],
+  智代: ['CLANNAD', 'Tomoyo After'],
+  古河渚: ['CLANNAD'],
+  远野秋叶: ['Tsukihime', '月姫'],
+  爱尔奎特: ['Tsukihime', '月姫'],
+  两仪式: ['Kara no Kyoukai', '空之境界'],
+  黑桐鲜花: ['Kara no Kyoukai', '空之境界'],
+  // ---------- 其他英文/罗马音简称 ----------
+  fate: ['Fate/stay night'],
+  hf: ["Fate/stay night [Heaven's Feel]"],
+  ubw: ['Fate/stay night [Unlimited Blade Works]'],
+  littlebusters: ['Little Busters!'],
+  angelbeats: ['Angel Beats!'],
+  tomoyo: ['Tomoyo After'],
+  subahibi: ['Subarashiki Hibi', '素晴らしき日々'],
+  yosuga: ['Yosuga no Sora', '緣之空'],
+  aiyoku: ['Aiyoku no Eustia', '穢翼のユースティア'],
+  eustia: ['Aiyoku no Eustia', '穢翼のユースティア'],
+  amakano: ['Amakano', 'アマカノ'],
+  月姬r: ['Tsukihime -A piece of blue glass moon-', '月姫 -A piece of blue glass moon-'],
   // 角色名（含常见错字修正）：御園莓華（巧克甜恋2）
   御园莓华: ['御園莓華'],
   御园梅华: ['御園莓華'],
