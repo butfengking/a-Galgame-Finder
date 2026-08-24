@@ -383,8 +383,8 @@ button.danger:hover { border-color: var(--danger); }
 .field label { display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-dim); }
 
 .field input[type="text"],
-.field input[type="color"],
-.field select {
+.field input[type="number"],
+.field input[type="color"] {
   width: 100%;
   padding: 9px 12px;
   font-size: 14px;
@@ -396,15 +396,8 @@ button.danger:hover { border-color: var(--danger); }
   font-family: inherit;
 }
 
-.field select { cursor: pointer; }
-
-.field select option {
-  color: var(--text);
-  background-color: var(--panel-solid);
-}
-
 .field input[type="text"]:focus,
-.field select:focus { border-color: var(--accent); }
+.field input[type="number"]:focus { border-color: var(--accent); }
 
 .field input[type="color"] {
   height: 42px;

@@ -23,7 +23,7 @@
     overlayVal: document.getElementById('overlay-val'),
     panelOpacityRange: document.getElementById('panel-opacity-range'),
     panelOpacityVal: document.getElementById('panel-opacity-val'),
-    resultLimitSelect: document.getElementById('result-limit-select'),
+    resultLimitInput: document.getElementById('result-limit-input'),
     btnUpdateIndex: document.getElementById('btn-update-index'),
     indexStatus: document.getElementById('index-status'),
 
@@ -85,7 +85,7 @@
     const alphaPct = Math.round((Number(settings.panelOpacity) || 0.85) * 100);
     els.panelOpacityRange.value = String(alphaPct);
     els.panelOpacityVal.textContent = alphaPct + '%';
-    els.resultLimitSelect.value = String(Number(settings.resultLimit) || 10);
+    els.resultLimitInput.value = String(Number(settings.resultLimit) || 10);
     els.bgStatus.textContent = bg.mode === 'image' && bg.filename ? '已设置：' + bg.filename : '未设置';
   }
 
@@ -93,7 +93,9 @@
     settings.background.color = els.bgColor.value;
     settings.background.overlay = Number(els.overlayRange.value) / 100;
     settings.panelOpacity = Number(els.panelOpacityRange.value) / 100;
-    settings.resultLimit = Number(els.resultLimitSelect.value) || 10;
+    const v = parseInt(els.resultLimitInput.value, 10);
+    settings.resultLimit = Math.max(1, Math.min(50, isNaN(v) ? 10 : v));
+    els.resultLimitInput.value = String(settings.resultLimit);
     settings = await api.setSettings(settings);
     applyBackground();
     syncSettingsForm();
@@ -409,7 +411,7 @@
     els.panelOpacityVal.textContent = els.panelOpacityRange.value + '%';
     saveBackgroundSettings();
   });
-  els.resultLimitSelect.addEventListener('change', saveBackgroundSettings);
+  els.resultLimitInput.addEventListener('change', saveBackgroundSettings);
 
   els.siteUrl.addEventListener('input', () => {
     clearTimeout(urlDetectTimer);
