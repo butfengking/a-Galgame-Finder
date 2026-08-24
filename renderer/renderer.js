@@ -269,7 +269,11 @@
     }
     a.addEventListener('click', (e) => {
       e.preventDefault();
-      api.openExternal(url);
+      if (/pixiv\.net\/artworks\//i.test(url)) {
+        api.openInApp(url); // Pixiv 作品页在应用内打开（保持登录，可下载）
+      } else {
+        api.openExternal(url);
+      }
     });
     return a;
   }

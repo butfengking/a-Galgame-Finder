@@ -526,6 +526,99 @@ ipcMain.handle('pixiv:logout', () => {
   return { loggedIn: false };
 });
 
+// 在应用内打开作品页（共享登录会话），并注入“下载全部”工具条
+ipcMain.handle('open-in-app', (e, url) => {
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return;
+  const win = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    title: '查看作品',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  win.loadURL(url);
+  win.webContents.on('did-finish-load', () => {
+    // 注入工具条：抓取作品原图地址并支持一键下载
+    const code = `
+      (async () => {
+        const m = location.href.match(/artworks\\/(\\d+)/);
+        if (!m) return;
+        const id = m[1];
+        let info = null;
+        try {
+          const r = await fetch('/ajax/illust/' + id, { credentials: 'same-origin' });
+          const j = await r.json();
+          if (j && j.body) info = { id, title: j.body.title, urls: (j.body.images || []).map(x => x.url).filter(Boolean) };
+        } catch (e) {}
+        if (!info || !info.urls.length) return;
+        const bar = document.createElement('div');
+        bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999999;background:rgba(20,30,40,.88);color:#fff;padding:8px 14px;font:13px sans-serif;display:flex;gap:12px;align-items:center;box-shadow:0 2px 8px rgba(0,0,0,.3);';
+        const t = document.createElement('span');
+        t.textContent = info.title + '（' + info.urls.length + ' 张）';
+        t.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+        const btn = document.createElement('button');
+        btn.textContent = '下载全部';
+        btn.style.cssText = 'background:#3b82f6;color:#fff;border:none;border-radius:4px;padding:4px 12px;cursor:pointer;font-size:13px;flex-shrink:0;';
+        btn.onclick = async () => {
+          if (btn.disabled) return;
+          btn.disabled = true; btn.textContent = '下载中…';
+          try {
+            const res = await window.api.downloadPixiv({ id: info.id, title: info.title, urls: info.urls });
+            if (res && res.ok) btn.textContent = '已保存 ' + res.files.length + ' 张：' + res.files[0];
+            else btn.textContent = '下载失败：' + ((res && res.message) || '未知错误');
+          } catch (e) {
+            btn.textContent = '下载失败';
+          }
+          btn.disabled = false;
+        };
+        bar.appendChild(t);
+        bar.appendChild(btn);
+        document.body.appendChild(bar);
+      })();
+    `;
+    win.webContents.executeJavaScript(code).catch(() => {});
+  });
+  return { ok: true };
+});
+
+// 下载 Pixiv 作品原图到 图片\\Pixiv\\（带登录 Cookie + Referer）
+ipcMain.handle('pixiv:download', async (e, payload) => {
+  const { id, title, urls } = payload || {};
+  if (!id || !Array.isArray(urls) || !urls.length) return { ok: false, message: '未获取到图片地址' };
+  const cookie = readPixivCookie();
+  if (!cookie) return { ok: false, message: '未登录 Pixiv' };
+  const base = path.join(app.getPath('pictures'), 'Pixiv');
+  fs.mkdirSync(base, { recursive: true });
+  const safeTitle = String(title || id).replace(/[\\/:*?"<>|]/g, '_').slice(0, 80);
+  const files = [];
+  for (let i = 0; i < urls.length; i++) {
+    let ext = '.png';
+    try {
+      ext = path.extname(new URL(urls[i]).pathname) || '.png';
+    } catch (err) {
+      /* ignore */
+    }
+    const file = path.join(base, urls.length > 1 ? safeTitle + '_p' + i + ext : safeTitle + ext);
+    try {
+      const res = await net.fetch(urls[i], {
+        headers: { 'User-Agent': BROWSER_UA, Referer: 'https://www.pixiv.net/', Cookie: 'PHPSESSID=' + cookie },
+      });
+      if (!res.ok) return { ok: false, message: '下载失败 HTTP ' + res.status + '（第 ' + (i + 1) + ' 张）' };
+      const buf = Buffer.from(await res.arrayBuffer());
+      fs.writeFileSync(file, buf);
+      files.push(file);
+    } catch (err) {
+      return { ok: false, message: '下载出错：' + err.message };
+    }
+  }
+  return { ok: true, files };
+});
+
 function createWindow() {
   const iconPath = path.join(__dirname, 'build', 'icon.ico');
   const win = new BrowserWindow({

@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('api', {
   pickBackgroundImage: () => ipcRenderer.invoke('settings:pick-bg'),
   clearBackgroundImage: () => ipcRenderer.invoke('settings:clear-bg'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  openInApp: (url) => ipcRenderer.invoke('open-in-app', url),
+  downloadPixiv: (payload) => ipcRenderer.invoke('pixiv:download', payload),
   pixivStatus: () => ipcRenderer.invoke('pixiv:status'),
   pixivLogin: () => ipcRenderer.invoke('pixiv:login'),
   pixivLogout: () => ipcRenderer.invoke('pixiv:logout'),
