@@ -116,12 +116,18 @@ function loadSettings() {
   const data = readJson(settingsFile(), null);
   const merged = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
   if (data && data.background) {
-    if (data.version === SETTINGS_VERSION || data.version === 2 || data.version === 3) {
+    if (data.version === SETTINGS_VERSION) {
+      // 当前版本：完全尊重已保存的设置（含用户改过的遮罩强度）
       merged.background = { ...merged.background, ...data.background };
       if (data.theme) merged.theme = data.theme;
       if (typeof data.panelOpacity === 'number') merged.panelOpacity = data.panelOpacity;
       if (typeof data.resultLimit === 'number') merged.resultLimit = data.resultLimit;
-      // v3 及更早的遮罩默认值过浅，统一修正为新默认 90%
+    } else if (data.version === 2 || data.version === 3) {
+      // 旧版本迁移：仅此一次把过浅的遮罩默认修正为 90%，其余保留
+      merged.background = { ...merged.background, ...data.background };
+      if (data.theme) merged.theme = data.theme;
+      if (typeof data.panelOpacity === 'number') merged.panelOpacity = data.panelOpacity;
+      if (typeof data.resultLimit === 'number') merged.resultLimit = data.resultLimit;
       merged.background.overlay = DEFAULT_SETTINGS.background.overlay;
     } else {
       // 更旧的版本：保留背景图片，颜色/遮罩/主题按新默认（浅色）重置
