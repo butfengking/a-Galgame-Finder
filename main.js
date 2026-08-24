@@ -22,6 +22,7 @@ const DEFAULT_SITES = [
     url: '',
     selector: '',
     titleSelector: '',
+    category: '游戏',
     enabled: true,
     builtin: true,
   },
@@ -32,6 +33,7 @@ const DEFAULT_SITES = [
     url: 'https://store.steampowered.com/search/?term={keyword}&l=schinese',
     selector: 'a.search_result_row',
     titleSelector: '.title',
+    category: '游戏',
     enabled: true,
     builtin: true,
   },
@@ -42,6 +44,7 @@ const DEFAULT_SITES = [
     url: 'https://shionlib.com/zh/search/game?q={keyword}',
     selector: '.game-grid a[href^="/zh/game/"]',
     titleSelector: 'img',
+    category: '游戏',
     enabled: true,
     builtin: true,
   },
@@ -53,6 +56,7 @@ const DEFAULT_SITES = [
     selector: '.bili-video-card a[href*="/video/BV"]',
     titleSelector: 'img',
     expand: true, // 拓展：搜索时自动追加 gal/旮旯给木/galgame/二创 等词，并抓标题/简介/评论排序
+    category: '视频',
     enabled: false,
     builtin: true,
   },
@@ -115,7 +119,12 @@ function loadSites() {
   const map = new Map();
   for (const s of data.sites) map.set(s.id, s);
   const builtin = DEFAULT_SITES.map((s) => ({ ...s, ...(map.get(s.id) || {}) }));
-  const custom = data.sites.filter((s) => !s.builtin);
+  const custom = data.sites
+    .filter((s) => !s.builtin)
+    .map((s) => ({
+      ...s,
+      category: s.category ? String(s.category).trim() || '未分类' : '游戏',
+    }));
   return [...builtin, ...custom];
 }
 
@@ -196,6 +205,7 @@ function validateSite(s) {
     selector: String(s.selector || '').trim(),
     titleSelector: String(s.titleSelector || '').trim(),
     expand: !!s.expand,
+    category: String(s.category || '游戏').trim() || '游戏',
     enabled: s.enabled !== false,
     builtin: false,
   };
@@ -310,6 +320,7 @@ ipcMain.handle('sites:update', (e, site) => {
   merged.selector = String(merged.selector || '').trim();
   merged.titleSelector = String(merged.titleSelector || '').trim();
   merged.expand = !!merged.expand;
+  merged.category = merged.category ? String(merged.category).trim() : '游戏';
   sites[idx] = merged;
   return saveSites(sites);
 });

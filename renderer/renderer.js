@@ -31,6 +31,8 @@
     siteModalTitle: document.getElementById('site-modal-title'),
     btnCloseSiteModal: document.getElementById('btn-close-site-modal'),
     siteName: document.getElementById('site-name'),
+    siteCategory: document.getElementById('site-category'),
+    categoryOptions: document.getElementById('category-options'),
     siteUrl: document.getElementById('site-url'),
     siteExampleKw: document.getElementById('site-example-kw'),
     siteExampleHint: document.getElementById('site-example-hint'),
@@ -133,58 +135,82 @@
     syncSettingsForm();
   }
 
-  // ---------- 站点列表 ----------
-  function renderSites() {
-    els.siteList.textContent = '';
-    for (const site of sites) {
-      const li = document.createElement('li');
-      li.className = 'site-item';
+  // ---------- 站点列表（按分类分组） ----------
+  function makeSiteItem(site) {
+    const li = document.createElement('li');
+    li.className = 'site-item';
 
-      const label = document.createElement('label');
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = !!site.enabled;
-      cb.addEventListener('change', async () => {
-        sites = await api.setSiteEnabled(site.id, cb.checked);
+    const label = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!site.enabled;
+    cb.addEventListener('change', async () => {
+      sites = await api.setSiteEnabled(site.id, cb.checked);
+      renderSites();
+    });
+
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = site.name;
+
+    label.appendChild(cb);
+    label.appendChild(nameSpan);
+    li.appendChild(label);
+
+    if (site.type === 'vndb') {
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = 'API';
+      li.appendChild(badge);
+    }
+
+    const edit = document.createElement('button');
+    edit.className = 'edit-btn';
+    edit.type = 'button';
+    edit.title = '编辑该网站';
+    edit.textContent = '编辑';
+    edit.addEventListener('click', () => openSiteModal(site));
+    li.appendChild(edit);
+
+    if (!site.builtin) {
+      const del = document.createElement('button');
+      del.className = 'remove-btn';
+      del.type = 'button';
+      del.title = '删除该网站';
+      del.textContent = '×';
+      del.addEventListener('click', async () => {
+        sites = await api.removeSite(site.id);
         renderSites();
       });
+      li.appendChild(del);
+    }
+    return li;
+  }
 
-      const nameSpan = document.createElement('span');
-      nameSpan.textContent = site.name;
-
-      label.appendChild(cb);
-      label.appendChild(nameSpan);
-      li.appendChild(label);
-
-      if (site.type === 'vndb') {
-        const badge = document.createElement('span');
-        badge.className = 'badge';
-        badge.textContent = 'API';
-        li.appendChild(badge);
+  function renderSites() {
+    els.siteList.textContent = '';
+    const presetOrder = ['游戏', '视频'];
+    const groups = new Map();
+    for (const site of sites) {
+      const cat = site.category || '未分类';
+      if (!groups.has(cat)) groups.set(cat, []);
+      groups.get(cat).push(site);
+    }
+    const cats = [...groups.keys()].sort((a, b) => {
+      const ia = presetOrder.indexOf(a);
+      const ib = presetOrder.indexOf(b);
+      const ra = ia === -1 ? (a === '未分类' ? 99 : 50) : ia;
+      const rb = ib === -1 ? (b === '未分类' ? 99 : 50) : ib;
+      if (ra !== rb) return ra - rb;
+      return a.localeCompare(b, 'zh-CN');
+    });
+    for (const cat of cats) {
+      const head = document.createElement('li');
+      head.className = 'category-head';
+      head.textContent = cat;
+      els.siteList.appendChild(head);
+      for (const site of groups.get(cat)) {
+        els.siteList.appendChild(makeSiteItem(site));
       }
-
-      const edit = document.createElement('button');
-      edit.className = 'edit-btn';
-      edit.type = 'button';
-      edit.title = '编辑该网站';
-      edit.textContent = '编辑';
-      edit.addEventListener('click', () => openSiteModal(site));
-      li.appendChild(edit);
-
-      if (!site.builtin) {
-        const del = document.createElement('button');
-        del.className = 'remove-btn';
-        del.type = 'button';
-        del.title = '删除该网站';
-        del.textContent = '×';
-        del.addEventListener('click', async () => {
-          sites = await api.removeSite(site.id);
-          renderSites();
-        });
-        li.appendChild(del);
-      }
-
-      els.siteList.appendChild(li);
     }
   }
 
@@ -375,6 +401,8 @@
     editingSiteId = site ? site.id : null;
     els.siteModalTitle.textContent = site ? '编辑网站' : '导入网站';
     els.siteName.value = site ? site.name : '';
+    els.siteCategory.value = site ? site.category || '游戏' : '游戏';
+    populateCategoryOptions();
     els.siteUrl.value = site ? (site.url || '') : '';
     els.siteSelector.value = site ? (site.selector || '') : '';
     els.siteTitleSelector.value = site ? (site.titleSelector || '') : '';
@@ -392,6 +420,20 @@
     updateExampleHint('粘贴搜索网址后会自动识别其中的关键词。保存时该词会被替换为 {keyword}。');
     els.siteModal.classList.remove('hidden');
     els.siteName.focus();
+  }
+
+  // 分类下拉建议：预置分类 + 所有已用分类
+  function populateCategoryOptions() {
+    els.categoryOptions.textContent = '';
+    const cats = new Set(['游戏', '视频']);
+    for (const s of sites) {
+      if (s.category) cats.add(s.category);
+    }
+    for (const c of cats) {
+      const opt = document.createElement('option');
+      opt.value = c;
+      els.categoryOptions.appendChild(opt);
+    }
   }
   function closeSiteModal() {
     els.siteModal.classList.add('hidden');
@@ -494,6 +536,7 @@
     const site = {
       id: editingSiteId,
       name: els.siteName.value,
+      category: els.siteCategory.value.trim() || '游戏',
       url: els.siteUrl.value,
       exampleKeyword: els.siteExampleKw.value.trim(),
       selector: els.siteSelector.value,

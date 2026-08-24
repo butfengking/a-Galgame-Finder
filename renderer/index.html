@@ -113,6 +113,11 @@
           <input id="site-name" type="text" placeholder="例如：我的 galgame 站" />
         </div>
         <div class="field">
+          <label>分类</label>
+          <input id="site-category" type="text" list="category-options" placeholder="游戏 / 视频 / 自定义…" />
+          <datalist id="category-options"></datalist>
+        </div>
+        <div class="field">
           <label>搜索网址</label>
           <input id="site-url" type="text" placeholder="https://example.com/search?q=CLANNAD" />
           <div class="muted hint">直接粘贴你在该网站搜过一次后复制出来的网址即可，无需手写 {keyword}。</div>
