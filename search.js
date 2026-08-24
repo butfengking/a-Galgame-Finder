@@ -59,6 +59,8 @@ const ABBREVIATIONS = {
   星白: ['星空列车与白的旅行', 'Hoshizora Tetsudou to Shiro no Tabi'],
   巧2: ['巧克甜恋2', 'Amairo Chocolata 2'],
   巧1: ['巧克甜恋', 'Amairo Chocolata'],
+  巧克甜恋: ['あまいろショコラータ', 'Amairo Chocolata'],
+  巧克甜恋2: ['あまいろショコラータ2', 'Amairo Chocolata 2'],
   // 角色名（含常见错字修正）：御園莓華（巧克甜恋2）
   御园莓华: ['御園莓華'],
   御园梅华: ['御園莓華'],

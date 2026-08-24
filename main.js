@@ -432,26 +432,104 @@ function clearPixivCookie() {
 }
 
 // Pixiv 搜索：官方 ajax 接口（需 PHPSESSID + Referer），翻页拉满到上限
-// 人名搜索候选词：原词 + 缩写/索引展开 + 简体/繁体变体（去重，最多 6 个）
+// 人名搜索候选词：原词 + 缩写/索引展开（最多递归两层）+ 简体/繁体变体（去重，最多 6 个）
 function personCandidates(keyword, extra) {
   const raw = String(keyword || '').trim();
   const out = [raw];
-  const exp = expandKeyword(raw);
-  if (exp) {
-    for (const e of exp.expansions) {
-      if (e && !out.includes(e)) out.push(e);
+  const seen = new Set([raw]);
+  const push = (s) => {
+    if (s && !seen.has(s)) {
+      seen.add(s);
+      out.push(s);
     }
-  }
-  for (const e of extra || []) {
-    if (e && !out.includes(e)) out.push(e);
-  }
+  };
+  const walk = (word, depth) => {
+    if (depth > 2) return;
+    const exp = expandKeyword(word);
+    if (exp) {
+      for (const e of exp.expansions) {
+        push(e);
+        walk(e, depth + 1);
+      }
+    }
+  };
+  walk(raw, 0);
+  for (const e of extra || []) push(e);
   if (/[\u4e00-\u9fff]/.test(raw)) {
     const t = tify(raw);
     const s = sify(raw);
-    if (t && t !== raw && !out.includes(t)) out.push(t);
-    if (s && s !== raw && !out.includes(s)) out.push(s);
+    push(t);
+    push(s);
   }
   return out.slice(0, 6);
+}
+
+// 多关键词（分号分隔）Pixiv 搜索：每个关键词展开 缩写/简繁 变体，取变体组合（AND）逐个搜索，
+// 按作品去重合并 —— 搜 莓华；巧克甜恋 只命中该游戏的角色，不会搜错同名角色
+async function pixivMultiTagSearch(parts, fetchImpl, limit) {
+  const cookie = readPixivCookie();
+  if (!cookie) throw new Error('未登录 Pixiv：请在左侧 Pixiv 行点“登录”完成登录后再搜索');
+  const cap = Math.max(1, Math.min(300, Number(limit) || 10));
+  const variants = parts.map((p) => personCandidates(p, []));
+  // 变体组合（笛卡尔积，最多 8 个组合，原文组合优先）
+  const combos = [];
+  const gen = (idx, cur) => {
+    if (combos.length >= 8) return;
+    if (idx === variants.length) {
+      const s = cur.join(' ').trim();
+      if (s) combos.push(s);
+      return;
+    }
+    for (const v of variants[idx]) gen(idx + 1, [...cur, v]);
+  };
+  gen(0, []);
+
+  const results = [];
+  const seen = new Set();
+  const headers = {
+    'User-Agent': BROWSER_UA,
+    Referer: 'https://www.pixiv.net/',
+    'Accept-Language': 'zh-CN,zh;q=0.9',
+    Cookie: 'PHPSESSID=' + cookie,
+  };
+  for (const combo of combos) {
+    if (results.length >= cap) break;
+    const enc = encodeURIComponent(combo);
+    for (let p = 1; p <= 5 && results.length < cap; p++) {
+      const url =
+        'https://www.pixiv.net/ajax/search/artworks/' +
+        enc +
+        '?word=' +
+        enc +
+        '&order=date_d&mode=all&p=' +
+        p +
+        '&s_mode=s_tag_full&type=all&lang=zh';
+      const res = await fetchImpl(url, { headers });
+      if (!res.ok) {
+        if (results.length) break; // 已有结果时容错返回
+        throw new Error('Pixiv HTTP ' + res.status);
+      }
+      const data = await res.json();
+      if (data.error) {
+        if (results.length) break;
+        throw new Error(data.message || 'Pixiv 搜索失败');
+      }
+      const items = (data.body && data.body.illustManga && data.body.illustManga.data) || [];
+      if (!items.length) break;
+      for (const it of items) {
+        if (results.length >= cap) break;
+        const u = 'https://www.pixiv.net/artworks/' + it.id;
+        if (seen.has(u)) continue;
+        seen.add(u);
+        results.push({
+          title: it.title,
+          url: u,
+          image: it.url ? 'piximg://img/' + encodeURIComponent(it.url) : null,
+        });
+      }
+    }
+  }
+  return { items: results, tags: [] };
 }
 
 async function pixivSearch(keyword, fetchImpl, extra, limit, refine, personMode) {
@@ -1061,6 +1139,9 @@ ipcMain.handle('search', async (e, keyword, opts) => {
   keyword = String(keyword || '').trim();
   if (!keyword) return { error: '请输入要查找的关键词' };
   const personMode = !!(opts && opts.personMode);
+  // 多关键词搜索：用 中文/英文分号（；;）分隔多个 tag，组合（AND）搜索，避免同名角色搜错游戏
+  const parts = keyword.split(/[;；]/).map((s) => s.trim()).filter(Boolean);
+  const multiTag = parts.length > 1;
 
   // 人物选择器：勾选若干完整人名标签时，只精确搜索这些标签对应的 Pixiv 站点
   const refineOpt = opts && opts.pixivRefine && typeof opts.pixivRefine === 'object' ? opts.pixivRefine : null;
@@ -1113,12 +1194,15 @@ ipcMain.handle('search', async (e, keyword, opts) => {
         let list;
         let pixivTags;
         if (site.type === 'pixiv') {
-          const r = await pixivSearch(keyword, net.fetch, extra, limit, false, personMode);
+          // 多关键词：变体组合 AND 搜索；单关键词：人名模式走相关标签扩展
+          const r = multiTag
+            ? await pixivMultiTagSearch(parts, net.fetch, limit)
+            : await pixivSearch(keyword, net.fetch, extra, limit, false, personMode);
           list = r.items;
           pixivTags = r.tags;
-        } else if (personMode) {
-          // 人名模式对非 Pixiv 站同样生效：各姓名变体逐个搜索后按网址去重合并
-          list = await personSearchSite(keyword, site, net.fetch, extra, limit);
+        } else if (personMode || multiTag) {
+          // 人名模式或多关键词对非 Pixiv 站同样生效：姓名变体逐个搜索后按网址去重合并
+          list = await personSearchSite(multiTag ? parts.join(' ') : keyword, site, net.fetch, extra, limit);
         } else if (site.type === 'vndb') {
           list = await vndbSearch(keyword, net.fetch, extra, limit);
         } else if (site.type === 'wallpaper') {

@@ -1,4 +1,4 @@
-// 单测：pixivSearch 的 relatedTags 人名扩展队列逻辑（沙箱连不上 Pixiv，用 mock 响应验证真实代码）
+// 单测：pixivSearch 的人名相关标签扩展 + pixivMultiTagSearch 多关键词组合搜索（沙箱连不上 Pixiv，用 mock 响应验证真实代码）
 const fs = require('fs');
 
 const src = fs.readFileSync('main.js', 'utf8');
@@ -7,19 +7,34 @@ const endMarker = '// Pixiv 图片代理';
 const end = src.indexOf(endMarker, start);
 if (start < 0 || end < 0) throw new Error('cannot extract pixivSearch');
 const fnSrc = src.slice(start, end);
+const startM = src.indexOf('async function pixivMultiTagSearch(');
+const endM = src.indexOf('async function pixivSearch(', startM);
+if (startM < 0 || endM < 0) throw new Error('cannot extract pixivMultiTagSearch');
+const multiSrc = src.slice(startM, endM);
 
 // 依赖 stub
 const BROWSER_UA = 'Mozilla/5.0 (test)';
 function expandKeyword(kw) {
-  const map = { '巧克甜恋2': { expansions: ['あまいろショコラータ2'] }, 御园莓华: { expansions: ['御園莓華'] } };
+  const map = {
+    '巧克甜恋2': { expansions: ['あまいろショコラータ2'] },
+    御园莓华: { expansions: ['御園莓華'] },
+    巧克甜恋: { expansions: ['あまいろショコラータ', 'Amairo Chocolata'] },
+    巧1: { expansions: ['巧克甜恋', 'Amairo Chocolata'] },
+  };
   return map[kw] || null;
 }
 function tify(s) { return s.replace(/园/g, '園').replace(/华/g, '華'); }
 function sify(s) { return s.replace(/園/g, '园').replace(/華/g, '华'); }
 function readPixivCookie() { return 'fake-session'; }
 
-// 每个标签的返回量（模拟 Pixiv 真实情况：原词“莓华”几乎没有直配作品，完整人名才有大量作品）
-const WORK_COUNT = { 莓华: 0, 御园莓华: 4, 御園莓華: 30, 莓華: 10, 御園いちか: 6, 白色相簿2: 10, 九條莓華: 8, 柚子: 30, 柚子社: 30, 初音: 50, 初音ミク: 50 };
+// 每个标签的返回量（模拟 Pixiv 真实情况：原词“莓华”几乎没有直配作品，完整人名/组合标签才有作品）
+const WORK_COUNT = {
+  莓华: 0, 御园莓华: 4, 御園莓華: 30, 莓華: 10, 御園いちか: 6, 白色相簿2: 10, 九條莓華: 8, 柚子: 30, 柚子社: 30, 初音: 50, 初音ミク: 50,
+  // 多关键词组合（真实情况：只有正确的日文 tag 组合才有作品，中文/简体组合基本没有）
+  '莓华 巧克甜恋': 0, '莓华 あまいろショコラータ': 0, '莓华 Amairo Chocolata': 0, '莓华 巧克甜戀': 0,
+  '莓華 巧克甜恋': 0, '莓華 あまいろショコラータ': 40, '莓華 Amairo Chocolata': 0, '莓華 巧克甜戀': 0,
+  '巧1 莓华': 0, '巧1 莓華': 0, '巧克甜恋 莓华': 0, '巧克甜恋 莓華': 4, 'Amairo Chocolata 莓华': 0, 'Amairo Chocolata 莓華': 0, 'あまいろショコラータ 莓华': 0, 'あまいろショコラータ 莓華': 5,
+};
 // 原词直搜的作品总量（人名片段很少，系列/常用词很多）
 const TOTAL = { 莓华: 0, 莓華: 10, 柚子: 5, 初音: 800, 白色相簿2: 19 };
 const RELATED_FOR = {
@@ -31,6 +46,7 @@ const RELATED_FOR = {
 };
 
 const searched = [];
+let mockSeq = 0;
 function mockFetch(url) {
   const u = new URL(url);
   const word = u.searchParams.get('word');
@@ -38,7 +54,7 @@ function mockFetch(url) {
   searched.push(word + '@p' + page);
   const count = WORK_COUNT[word] || 0;
   const data = [];
-  for (let i = 0; i < count; i++) data.push({ id: (word + page + i).split('').reduce((a, c) => a + c.charCodeAt(0), 0), title: word + ' #' + (page - 1) * 30 + i, url: '' });
+  for (let i = 0; i < count; i++) data.push({ id: ++mockSeq, title: word + ' #' + (page - 1) * 30 + i, url: '' });
   const body = { illustManga: { data, total: TOTAL[word] || 0 } };
   if (RELATED_FOR[word]) body.relatedTags = RELATED_FOR[word];
   return { ok: true, json: async () => ({ error: false, body }) };
@@ -47,22 +63,33 @@ function mockFetch(url) {
 async function runSearch(keyword, extra, limit, refine, personMode) {
   const fn = new Function('keyword', 'fetchImpl', 'extra', 'limit', 'refine', 'personMode', 'BROWSER_UA', 'expandKeyword', 'tify', 'sify', 'readPixivCookie', 'personCandidates',
     'return (' + fnSrc + ').call(null, keyword, arguments[1], arguments[2], arguments[3], arguments[4], arguments[5]);');
-  const personCandidates = (kw, ex) => {
-    const raw = String(kw || '').trim();
-    const out = [raw];
-    const exp = expandKeyword(raw);
-    if (exp) for (const e of exp.expansions) if (e && !out.includes(e)) out.push(e);
-    for (const e of ex || []) if (e && !out.includes(e)) out.push(e);
-    if (/[\u4e00-\u9fff]/.test(raw)) {
-      const t = tify(raw);
-      const s = sify(raw);
-      if (t && t !== raw && !out.includes(t)) out.push(t);
-      if (s && s !== raw && !out.includes(s)) out.push(s);
-    }
-    return out.slice(0, 6);
-  };
-  return await fn(keyword, mockFetch, extra, limit, refine, personMode, BROWSER_UA, expandKeyword, tify, sify, readPixivCookie, personCandidates);
+  return await fn(keyword, mockFetch, extra, limit, refine, personMode, BROWSER_UA, expandKeyword, tify, sify, readPixivCookie, personCandidatesStub);
 }
+
+async function runMulti(parts, limit) {
+  const fn = new Function('parts', 'fetchImpl', 'limit', 'BROWSER_UA', 'personCandidates', 'readPixivCookie',
+    'return (' + multiSrc + ').call(null, parts, arguments[1], arguments[2]);');
+  return await fn(parts, mockFetch, limit, BROWSER_UA, personCandidatesStub, readPixivCookie);
+}
+
+const personCandidatesStub = (kw, ex) => {
+  const raw = String(kw || '').trim();
+  const out = [raw];
+  const seen = new Set([raw]);
+  const push = (s) => { if (s && !seen.has(s)) { seen.add(s); out.push(s); } };
+  const walk = (word, depth) => {
+    if (depth > 2) return;
+    const exp = expandKeyword(word);
+    if (exp) for (const e of exp.expansions) { push(e); walk(e, depth + 1); }
+  };
+  walk(raw, 0);
+  for (const e of ex || []) push(e);
+  if (/[\u4e00-\u9fff]/.test(raw)) {
+    push(tify(raw));
+    push(sify(raw));
+  }
+  return out.slice(0, 6);
+};
 
 (async () => {
   // 场景1（用户原话）：人名模式开启，搜“莓华”（名）→ 名/姓名 都搜出来 —— cap 60 足够大
@@ -155,5 +182,25 @@ async function runSearch(keyword, extra, limit, refine, personMode) {
   const ok9 = s9.includes('初音') && s9.includes('初音ミク') && r9.tags.includes('初音ミク');
   console.log('[场景9] 手动开启后常用词也按人名扩展:', ok9, '\n');
 
-  if (ok1 && ok10 && ok2 && ok3 && ok5 && ok6 && ok7 && ok4 && ok8 && ok9) { console.log('PASS'); } else { console.error('FAIL'); process.exit(1); }
+  // 场景11（多关键词 AND）：搜“莓华；巧克甜恋” → 变体组合搜索（莓华 巧克甜恋 / 莓華 あまいろショコラータ…），
+  // 结果按作品去重合并，不弹人物选择器
+  searched.length = 0;
+  const r11 = await runMulti(['莓华', '巧克甜恋'], 20);
+  const s11 = [...new Set(searched.map((s) => s.split('@')[0]))];
+  const u11 = new Set(r11.items.map((r) => r.url));
+  console.log('[场景11] 组合标签:', s11.join(' | '));
+  console.log('[场景11] 结果数:', r11.items.length, '| 去重后:', u11.size, '| 人物候选:', r11.tags.length);
+  const ok11 = s11.includes('莓华 巧克甜恋') && s11.includes('莓華 あまいろショコラータ') &&
+               r11.items.length === 20 && u11.size === r11.items.length && r11.tags.length === 0;
+  console.log('[场景11] 多关键词组合搜索并去重:', ok11, '\n');
+
+  // 场景13（多关键词 + 缩写递归）：搜“巧1；莓华” → 巧1 递归展开出 あまいろショコラータ 参与组合
+  searched.length = 0;
+  await runMulti(['巧1', '莓华'], 60);
+  const s13 = [...new Set(searched.map((s) => s.split('@')[0]))];
+  console.log('[场景13] 组合标签:', s13.join(' | '));
+  const ok13 = s13.includes('あまいろショコラータ 莓華') && s13.includes('巧克甜恋 莓華');
+  console.log('[场景13] 缩写递归展开参与组合:', ok13, '\n');
+
+  if (ok1 && ok10 && ok2 && ok3 && ok5 && ok6 && ok7 && ok4 && ok8 && ok9 && ok11 && ok13) { console.log('PASS'); } else { console.error('FAIL'); process.exit(1); }
 })().catch((e) => { console.error('FAIL', e); process.exit(1); });
