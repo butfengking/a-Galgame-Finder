@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { execSync } = require('child_process');
 const {
   vndbSearch,
   htmlSearch,
@@ -60,6 +61,17 @@ const DEFAULT_SITES = [
     enabled: false,
     builtin: true,
   },
+  {
+    id: 'wallpaper',
+    name: 'Wallpaper Engine 壁纸',
+    type: 'wallpaper', // 本地壁纸索引 + 公开创意工坊搜索（无需登录）
+    url: '',
+    selector: '',
+    titleSelector: '',
+    category: '壁纸',
+    enabled: false,
+    builtin: true,
+  },
 ];
 
 const SETTINGS_VERSION = 4;
@@ -83,6 +95,10 @@ const DEFAULT_SETTINGS = {
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'appbg',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true },
+  },
+  {
+    scheme: 'wpimg', // 本地 Wallpaper Engine 壁纸预览图
     privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true },
   },
 ]);
@@ -251,6 +267,123 @@ function registerAppBgProtocol() {
   });
 }
 
+// ---------- Wallpaper Engine 本地壁纸 ----------
+let wallpapersCache = null; // { root, items: [{id, dir, title, tags, preview}] }
+
+function getWallpapersRoot() {
+  try {
+    const out = execSync('reg query "HKCU\\Software\\Valve\\Steam" /v SteamPath', { encoding: 'utf8' });
+    const m = out.match(/SteamPath\s+REG_SZ\s+(.+)/);
+    if (m) {
+      const sp = m[1].trim().replace(/\\\\/g, '\\').replace(/\\+$/, '');
+      const root = path.join(sp, 'steamapps', 'workshop', 'content', '431960');
+      if (fs.existsSync(root)) return root;
+    }
+  } catch (e) {
+    /* ignore */
+  }
+  for (const c of ['C:\\Program Files (x86)\\Steam', 'C:\\Program Files\\Steam', 'D:\\Steam', 'E:\\Steam', 'D:\\SteamLibrary', 'E:\\SteamLibrary']) {
+    const root = path.join(c, 'steamapps', 'workshop', 'content', '431960');
+    if (fs.existsSync(root)) return root;
+  }
+  return null;
+}
+
+function loadWallpapersIndex() {
+  if (wallpapersCache) return wallpapersCache;
+  const root = getWallpapersRoot();
+  if (!root) {
+    wallpapersCache = { root: null, items: [] };
+    return wallpapersCache;
+  }
+  const items = [];
+  try {
+    for (const id of fs.readdirSync(root)) {
+      const dir = path.join(root, id);
+      if (!fs.statSync(dir).isDirectory()) continue;
+      const pj = path.join(dir, 'project.json');
+      if (!fs.existsSync(pj)) continue;
+      try {
+        const j = JSON.parse(fs.readFileSync(pj, 'utf8'));
+        let preview = (j.preview && String(j.preview).replace(/^.*[\\/]/, '')) || '';
+        if (preview && !fs.existsSync(path.join(dir, preview))) preview = '';
+        if (!preview) {
+          const found = ['preview.jpg', 'preview.png', 'preview.gif', 'preview.webp'].find((f) => fs.existsSync(path.join(dir, f)));
+          if (found) preview = found;
+        }
+        items.push({
+          id,
+          dir,
+          title: j.title || id,
+          tags: Array.isArray(j.tags) ? j.tags.map((t) => (t && t.value) || '').filter(Boolean) : [],
+          preview,
+        });
+      } catch (e) {
+        /* ignore */
+      }
+    }
+  } catch (e) {
+    /* ignore */
+  }
+  wallpapersCache = { root, items };
+  return wallpapersCache;
+}
+
+function searchLocalWallpapers(keyword, extra, limit) {
+  const idx = loadWallpapersIndex();
+  if (!idx || !idx.items.length) return [];
+  const terms = [String(keyword || ''), ...(extra || [])].map((t) => String(t).trim().toLowerCase()).filter((t) => t.length >= 2);
+  const out = [];
+  for (const it of idx.items) {
+    const hay = (it.title + ' ' + it.tags.join(' ')).toLowerCase();
+    if (terms.some((t) => hay.includes(t))) {
+      out.push({
+        title: it.title,
+        url: 'file://' + it.dir.replace(/\\/g, '/'),
+        image: it.preview ? 'wpimg://wallpaper/' + it.id + '?f=' + encodeURIComponent(it.preview) : null,
+      });
+    }
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+// 本地壁纸 + 公开创意工坊搜索（无需登录；工坊抓取失败时仅返回本地结果）
+async function wallpaperSearch(keyword, fetchImpl, extra, limit) {
+  const cap = limit || 10;
+  const local = searchLocalWallpapers(keyword, extra, cap);
+  let online = [];
+  try {
+    const workshopSite = {
+      url: 'https://steamcommunity.com/workshop/browse/?appid=431960&searchtext={keyword}&browsesort=textsearch&actualsort=textsearch&p=1',
+      selector: 'a[href*="sharedfiles/filedetails"]',
+      titleSelector: 'img',
+    };
+    online = await htmlSearch(keyword, workshopSite, fetchImpl, extra, cap);
+  } catch (e) {
+    /* 工坊不可用时忽略 */
+  }
+  return [...local, ...online].slice(0, cap);
+}
+
+function registerWpImgProtocol() {
+  protocol.handle('wpimg', (request) => {
+    try {
+      const url = new URL(request.url);
+      const id = url.pathname.replace(/^\/+/, '');
+      const f = url.searchParams.get('f') || '';
+      const idx = loadWallpapersIndex();
+      if (!idx || !idx.root) return new Response('no index', { status: 404 });
+      const filePath = path.normalize(path.join(idx.root, id, f));
+      if (!filePath.startsWith(path.normalize(idx.root))) return new Response('forbidden', { status: 403 });
+      const data = fs.readFileSync(filePath);
+      return new Response(data, { headers: { 'Content-Type': mimeOf(filePath) } });
+    } catch (e) {
+      return new Response('bad request', { status: 400 });
+    }
+  });
+}
+
 function createWindow() {
   const iconPath = path.join(__dirname, 'build', 'icon.ico');
   const win = new BrowserWindow({
@@ -368,6 +501,8 @@ ipcMain.handle('search', async (e, keyword) => {
         const list =
           site.type === 'vndb'
             ? await vndbSearch(keyword, net.fetch, extra, limit)
+            : site.type === 'wallpaper'
+            ? await wallpaperSearch(keyword, net.fetch, extra, limit)
             : await htmlSearch(keyword, site, net.fetch, extra, limit);
         return { siteId: site.id, siteName: site.name, ok: true, count: list.length, results: list };
       } catch (err) {
@@ -577,7 +712,8 @@ ipcMain.handle('settings:clear-bg', () => {
 });
 
 ipcMain.handle('open-external', (e, url) => {
-  if (typeof url === 'string' && /^https?:\/\//i.test(url)) shell.openExternal(url);
+  // 普通链接或本地壁纸文件夹（file://）
+  if (typeof url === 'string' && (/^https?:\/\//i.test(url) || /^file:\/\//i.test(url))) shell.openExternal(url);
 });
 
 // 词库状态：返回是否已下载、游戏数量、更新时间
@@ -710,6 +846,7 @@ function ensureShionlibIndex() {
 
 app.whenReady().then(() => {
   registerAppBgProtocol();
+  registerWpImgProtocol();
   Menu.setApplicationMenu(null);
   ensureShionlibIndex(); // 后台预建中文缩写索引
   createWindow();
