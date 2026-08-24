@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld('api', {
   removeSite: (id) => ipcRenderer.invoke('sites:remove', id),
   setSiteEnabled: (id, enabled) => ipcRenderer.invoke('sites:set-enabled', id, enabled),
   resetSites: () => ipcRenderer.invoke('sites:reset'),
-  search: (keyword) => ipcRenderer.invoke('search', keyword),
+  search: (keyword, opts) => ipcRenderer.invoke('search', keyword, opts),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (settings) => ipcRenderer.invoke('settings:set', settings),
   pickBackgroundImage: () => ipcRenderer.invoke('settings:pick-bg'),

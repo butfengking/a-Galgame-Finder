@@ -40,10 +40,10 @@ function mockFetch(url) {
   return { ok: true, json: async () => ({ error: false, body }) };
 }
 
-async function runSearch(keyword, extra, limit) {
-  const fn = new Function('keyword', 'fetchImpl', 'extra', 'limit', 'BROWSER_UA', 'expandKeyword', 'tify', 'sify', 'readPixivCookie',
-    'return (' + fnSrc + ').call(null, keyword, arguments[1], arguments[2], arguments[3]);');
-  return await fn(keyword, mockFetch, extra, limit, BROWSER_UA, expandKeyword, tify, sify, readPixivCookie);
+async function runSearch(keyword, extra, limit, refine) {
+  const fn = new Function('keyword', 'fetchImpl', 'extra', 'limit', 'refine', 'BROWSER_UA', 'expandKeyword', 'tify', 'sify', 'readPixivCookie',
+    'return (' + fnSrc + ').call(null, keyword, arguments[1], arguments[2], arguments[3], arguments[4]);');
+  return await fn(keyword, mockFetch, extra, limit, refine, BROWSER_UA, expandKeyword, tify, sify, readPixivCookie);
 }
 
 (async () => {
@@ -51,20 +51,21 @@ async function runSearch(keyword, extra, limit) {
   searched.length = 0;
   const r1 = await runSearch('莓华', [], 60);
   const s1 = [...new Set(searched.map((s) => s.split('@')[0]))];
-  const t1 = new Set(r1.map((r) => r.title.split(' ')[0]));
+  const t1 = new Set(r1.items.map((r) => r.title.split(' ')[0]));
   console.log('[场景1] 搜索标签:', s1.join(' | '));
-  console.log('[场景1] 结果标签:', [...t1].join(' | '), '| 结果数:', r1.length);
+  console.log('[场景1] 结果标签:', [...t1].join(' | '), '| 结果数:', r1.items.length);
   const ok1 = ['莓华', '莓華', '御園莓華', '御园莓华'].every((t) => s1.includes(t)) &&
-              ['莓華', '御園莓華', '御园莓华'].every((t) => t1.has(t));
-  console.log('[场景1] 名/姓名全部入队并呈现:', ok1, '\n');
+              ['莓華', '御園莓華', '御园莓华'].every((t) => t1.has(t)) &&
+              r1.tags.includes('御園莓華');
+  console.log('[场景1] 名/姓名全部入队并呈现, 人物候选返回:', ok1, '\n');
 
   // 场景2：默认结果上限 10 —— 每个变体按配额至少贡献几条，不单一标签占满
   searched.length = 0;
   const r2 = await runSearch('莓华', [], 10);
   const s2 = [...new Set(searched.map((s) => s.split('@')[0]))];
-  const t2 = new Set(r2.map((r) => r.title.split(' ')[0]));
-  console.log('[场景2] 搜索标签:', s2.join(' | '), '| 结果标签:', [...t2].join(' | '), '| 结果数:', r2.length);
-  const ok2 = r2.length === 10 && ['莓華', '御園莓華', '御园莓华'].filter((t) => t2.has(t)).length >= 2;
+  const t2 = new Set(r2.items.map((r) => r.title.split(' ')[0]));
+  console.log('[场景2] 搜索标签:', s2.join(' | '), '| 结果标签:', [...t2].join(' | '), '| 结果数:', r2.items.length);
+  const ok2 = r2.items.length === 10 && ['莓華', '御園莓華', '御园莓华'].filter((t) => t2.has(t)).length >= 2;
   console.log('[场景2] 上限 10 时各变体均呈现:', ok2, '\n');
 
   // 场景3：搜“名”莓華 → 相关标签“御園莓華”（姓名）必须入队；同一 (标签,页) 不重复抓取
@@ -80,19 +81,27 @@ async function runSearch(keyword, extra, limit) {
   searched.length = 0;
   const r5 = await runSearch('莓华', [], 80);
   const s5 = [...new Set(searched.map((s) => s.split('@')[0]))];
-  const t5 = new Set(r5.map((r) => r.title.split(' ')[0]));
+  const t5 = new Set(r5.items.map((r) => r.title.split(' ')[0]));
   console.log('[场景5] 搜索标签:', s5.join(' | '));
-  console.log('[场景5] 结果标签:', [...t5].join(' | '));
-  const ok5 = s5.includes('九條莓華') && t5.has('九條莓華') && t5.has('御園莓華');
-  console.log('[场景5] 同名角色全部呈现:', ok5, '\n');
+  console.log('[场景5] 结果标签:', [...t5].join(' | '), '| 人物候选:', r5.tags.join(' | '));
+  const ok5 = s5.includes('九條莓華') && t5.has('九條莓華') && t5.has('御園莓華') && r5.tags.includes('九條莓華');
+  console.log('[场景5] 同名角色全部呈现且进人物候选:', ok5, '\n');
+
+  // 场景6（人物选择器 refine）：点选 御園莓華 → 只搜该标签，不做相关标签扩展
+  searched.length = 0;
+  const r6 = await runSearch('御園莓華', [], 30, true);
+  const s6 = [...new Set(searched.map((s) => s.split('@')[0]))];
+  console.log('[场景6] 搜索标签:', s6.join(' | '), '| 结果数:', r6.items.length, '| 人物候选:', r6.tags.length);
+  const ok6 = s6.length === 1 && s6[0] === '御園莓華' && r6.items.length === 30 && r6.tags.length === 0;
+  console.log('[场景6] 精确搜索只搜该人物:', ok6, '\n');
 
   // 场景4：非人名搜索（长词/非中文）行为不变 —— 不加相关标签
   searched.length = 0;
   const r4 = await runSearch('白色相簿2', [], 10);
   const s4 = [...new Set(searched.map((s) => s.split('@')[0]))];
-  console.log('[场景4] 搜索标签:', s4.join(' | '), '| 结果数:', r4.length);
-  const ok4 = s4.length === 1 && s4[0] === '白色相簿2' && r4.length === 10;
+  console.log('[场景4] 搜索标签:', s4.join(' | '), '| 结果数:', r4.items.length, '| 人物候选:', r4.tags.length);
+  const ok4 = s4.length === 1 && s4[0] === '白色相簿2' && r4.items.length === 10 && r4.tags.length === 0;
   console.log('[场景4] 长词不扩展:', ok4, '\n');
 
-  if (ok1 && ok2 && ok3 && ok4 && ok5) { console.log('PASS'); } else { console.error('FAIL'); process.exit(1); }
+  if (ok1 && ok2 && ok3 && ok4 && ok5 && ok6) { console.log('PASS'); } else { console.error('FAIL'); process.exit(1); }
 })().catch((e) => { console.error('FAIL', e); process.exit(1); });

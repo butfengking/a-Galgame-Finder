@@ -60,6 +60,10 @@
   let exampleKwAuto = false;
   let urlDetectTimer = null;
   const collapsedSites = new Set(); // 本次会话中收起的结果分组
+  const pixivTagsBySite = new Map(); // Pixiv 人物选择器候选（siteId -> 完整人名标签列表）
+  const refinedTagBySite = new Map(); // Pixiv 当前选中的精确人物标签（siteId -> tag）
+  let lastPayload = null; // 最近一次搜索结果（用于人物精确搜索后局部刷新）
+  let lastKeyword = ''; // 最近一次搜索关键词
 
   // ---------- 主题与背景 ----------
   function applyBackground() {
@@ -352,6 +356,64 @@
       const body = document.createElement('div');
       body.className = 'group-body';
 
+      // Pixiv 人物选择器：搜索到多个完整人名时，显示候选人物标签，点选后只搜该人物
+      const charTags = r.pixivTags && r.pixivTags.length ? r.pixivTags : pixivTagsBySite.get(r.siteId);
+      if (r.ok && charTags && charTags.length) {
+        pixivTagsBySite.set(r.siteId, charTags);
+        const chips = document.createElement('div');
+        chips.className = 'char-tags';
+        const label = document.createElement('span');
+        label.className = 'char-label';
+        label.textContent = '人物：';
+        chips.appendChild(label);
+        const setActive = (btn) => {
+          for (const c of chips.querySelectorAll('.char-chip')) c.classList.remove('active');
+          btn.classList.add('active');
+        };
+        const activeTag = refinedTagBySite.get(r.siteId) || null;
+        const allBtn = document.createElement('button');
+        allBtn.className = 'char-chip' + (activeTag ? '' : ' active');
+        allBtn.type = 'button';
+        allBtn.textContent = '全部';
+        allBtn.addEventListener('click', async () => {
+          setActive(allBtn);
+          refinedTagBySite.delete(r.siteId);
+          try {
+            const p = await api.search(lastKeyword);
+            lastPayload = p;
+            renderResults(p);
+          } catch (e) {
+            els.status.textContent = '搜索出错：' + (e && e.message ? e.message : e);
+          }
+        });
+        chips.appendChild(allBtn);
+        for (const tag of charTags) {
+          const chip = document.createElement('button');
+          chip.className = 'char-chip' + (activeTag === tag ? ' active' : '');
+          chip.type = 'button';
+          chip.textContent = tag;
+          chip.addEventListener('click', async () => {
+            setActive(chip);
+            refinedTagBySite.set(r.siteId, tag);
+            chip.disabled = true;
+            try {
+              const p = await api.search(lastKeyword, { pixivRefine: { siteId: r.siteId, tag } });
+              if (p && Array.isArray(p.results) && p.results.length) {
+                const entry = p.results[0];
+                lastPayload.results = lastPayload.results.map((x) => (x.siteId === entry.siteId ? entry : x));
+                renderResults(lastPayload);
+              }
+            } catch (e) {
+              els.status.textContent = '搜索出错：' + (e && e.message ? e.message : e);
+            } finally {
+              chip.disabled = false;
+            }
+          });
+          chips.appendChild(chip);
+        }
+        body.appendChild(chips);
+      }
+
       if (!r.ok) {
         const err = document.createElement('div');
         err.className = 'error-note';
@@ -413,8 +475,11 @@
     els.btnSearch.disabled = true;
     els.status.textContent = '正在搜索“' + kw + '”……';
     els.results.textContent = '';
+    lastKeyword = kw;
+    refinedTagBySite.clear();
     try {
       const payload = await api.search(kw);
+      lastPayload = payload;
       renderResults(payload);
     } catch (e) {
       els.status.textContent = '搜索出错：' + (e && e.message ? e.message : e);

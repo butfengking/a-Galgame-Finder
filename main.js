@@ -430,7 +430,7 @@ function clearPixivCookie() {
 }
 
 // Pixiv 搜索：官方 ajax 接口（需 PHPSESSID + Referer），翻页拉满到上限
-async function pixivSearch(keyword, fetchImpl, extra, limit) {
+async function pixivSearch(keyword, fetchImpl, extra, limit, refine) {
   const cookie = readPixivCookie();
   if (!cookie) throw new Error('未登录 Pixiv：请在左侧 Pixiv 行点“登录”完成登录后再搜索');
   const cap = limit || 10;
@@ -459,6 +459,7 @@ async function pixivSearch(keyword, fetchImpl, extra, limit) {
   // 进入人名模式 —— 把完整人名标签加入队列，按配额轮流呈现 名/姓/姓名，再补满上限。
   // 非人名搜索（无扩展或词非短中文）走原有逐变体深度优先逻辑，行为不变。
   const results = [];
+  const nameTags = []; // 人物选择器候选：所有从相关标签扩展出来的完整人名
   const queued = new Set(candidates);
   const queue = candidates.slice();
   const perTagCount = new Map(); // 标签 -> 已贡献结果数
@@ -508,6 +509,17 @@ async function pixivSearch(keyword, fetchImpl, extra, limit) {
     }
   };
 
+  // 精确人物搜索：用户从“人物”选择器点选了某个完整人名标签，只搜该标签（不做相关标签扩展）
+  if (refine) {
+    for (let p = 1; p <= 5 && results.length < cap; p++) {
+      const body = await fetchPage(raw, p);
+      const items = (body.illustManga && body.illustManga.data) || [];
+      if (!items.length) break;
+      pushItems(raw, items);
+    }
+    return { items: results, tags: [] };
+  }
+
   // 原词第 1 页：决定是否人名模式。
   // 同名角色很多，所以不“猜”是哪一个人：只要相关标签里包含该名/姓片段的完整人名
   // （如 御園莓華、○○莓華），全部加入队列一起搜，所有同名角色的作品都会呈现。
@@ -526,6 +538,7 @@ async function pixivSearch(keyword, fetchImpl, extra, limit) {
         if (!queued.has(rt)) {
           queued.add(rt);
           queue.push(rt);
+          nameTags.push(rt);
         }
       }
     }
@@ -553,6 +566,7 @@ async function pixivSearch(keyword, fetchImpl, extra, limit) {
             if (variants.some((v) => rt.length > v.length && rt.includes(v))) {
               queued.add(rt);
               queue.push(rt);
+              nameTags.push(rt);
             }
           }
         }
@@ -575,7 +589,7 @@ async function pixivSearch(keyword, fetchImpl, extra, limit) {
       break;
     }
   }
-  return results.slice(0, cap);
+  return { items: results.slice(0, cap), tags: nameTags };
 }
 
 // Pixiv 图片代理：带登录 Cookie + Referer 抓取 i.pximg.net
@@ -973,9 +987,30 @@ ipcMain.handle('sites:reset', () => {
 });
 
 // ---------- 搜索 IPC ----------
-ipcMain.handle('search', async (e, keyword) => {
+ipcMain.handle('search', async (e, keyword, opts) => {
   keyword = String(keyword || '').trim();
   if (!keyword) return { error: '请输入要查找的关键词' };
+
+  // 人物选择器：点选某个完整人名标签时，只精确搜索该标签对应的 Pixiv 站点
+  const refineOpt = opts && opts.pixivRefine && typeof opts.pixivRefine === 'object' ? opts.pixivRefine : null;
+  if (refineOpt && refineOpt.tag) {
+    const site = loadSites().find((s) => s.id === refineOpt.siteId && s.type === 'pixiv');
+    if (!site) return { error: '未找到对应的 Pixiv 站点' };
+    const limit = Math.max(1, Math.min(300, Number(loadSettings().resultLimit) || 10));
+    try {
+      const res = await pixivSearch(String(refineOpt.tag).trim(), net.fetch, [], limit, true);
+      return {
+        keyword: String(refineOpt.tag).trim(),
+        results: [{ siteId: site.id, siteName: site.name, ok: true, count: res.items.length, results: res.items }],
+      };
+    } catch (err) {
+      return {
+        keyword: String(refineOpt.tag).trim(),
+        results: [{ siteId: site.id, siteName: site.name, ok: false, error: String((err && err.message) || err) }],
+      };
+    }
+  }
+
   const sites = loadSites().filter((s) => s.enabled);
   if (!sites.length) return { error: '没有启用任何网站，请先在左侧启用或导入网站' };
 
@@ -997,15 +1032,22 @@ ipcMain.handle('search', async (e, keyword) => {
   const results = await Promise.allSettled(
     sites.map(async (site) => {
       try {
-        const list =
-          site.type === 'vndb'
-            ? await vndbSearch(keyword, net.fetch, extra, limit)
-            : site.type === 'wallpaper'
-            ? await wallpaperSearch(keyword, net.fetch, extra, limit)
-            : site.type === 'pixiv'
-            ? await pixivSearch(keyword, net.fetch, extra, limit)
-            : await htmlSearch(keyword, site, net.fetch, extra, limit);
-        return { siteId: site.id, siteName: site.name, ok: true, count: list.length, results: list };
+        let list;
+        let pixivTags;
+        if (site.type === 'pixiv') {
+          const r = await pixivSearch(keyword, net.fetch, extra, limit);
+          list = r.items;
+          pixivTags = r.tags;
+        } else if (site.type === 'vndb') {
+          list = await vndbSearch(keyword, net.fetch, extra, limit);
+        } else if (site.type === 'wallpaper') {
+          list = await wallpaperSearch(keyword, net.fetch, extra, limit);
+        } else {
+          list = await htmlSearch(keyword, site, net.fetch, extra, limit);
+        }
+        const wrapped = { siteId: site.id, siteName: site.name, ok: true, count: list.length, results: list };
+        if (pixivTags && pixivTags.length) wrapped.pixivTags = pixivTags; // 人物选择器候选
+        return wrapped;
       } catch (err) {
         return { siteId: site.id, siteName: site.name, ok: false, error: String((err && err.message) || err) };
       }
