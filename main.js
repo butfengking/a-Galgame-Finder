@@ -508,12 +508,14 @@ async function pixivSearch(keyword, fetchImpl, extra, limit) {
     }
   };
 
-  // 原词第 1 页：决定是否人名模式
+  // 原词第 1 页：决定是否人名模式。
+  // 同名角色很多，所以不“猜”是哪一个人：只要相关标签里包含该名/姓片段的完整人名
+  // （如 御園莓華、○○莓華），全部加入队列一起搜，所有同名角色的作品都会呈现。
   let nameMode = false;
   let quota = 0;
+  const variants = [...new Set([raw, tify(raw), sify(raw)].filter(Boolean))];
   const rawBody = await fetchPage(raw, 1);
   if (Array.isArray(rawBody.relatedTags)) {
-    const variants = [...new Set([raw, tify(raw), sify(raw)].filter(Boolean))];
     const relevant = rawBody.relatedTags.filter(
       (rt) => typeof rt === 'string' && rt !== raw && variants.some((v) => rt.length > v.length && rt.includes(v))
     );
@@ -542,6 +544,18 @@ async function pixivSearch(keyword, fetchImpl, extra, limit) {
         if (phase === 1 && nameMode && (perTagCount.get(q) || 0) >= quota) break;
         const body = await fetchPage(q, p);
         progressed = true;
+        // 同名角色广度扩展：人名模式下，每个标签第 1 页的相关标签里，
+        // 凡包含原名/姓片段的完整人名（重名角色）都继续加入队列，直至找全或达上限
+        if (nameMode && p === 1 && Array.isArray(body.relatedTags)) {
+          for (const rt of body.relatedTags) {
+            if (typeof rt !== 'string' || !rt || queued.has(rt)) continue;
+            if (queue.length >= 40) break;
+            if (variants.some((v) => rt.length > v.length && rt.includes(v))) {
+              queued.add(rt);
+              queue.push(rt);
+            }
+          }
+        }
         const items = (body.illustManga && body.illustManga.data) || [];
         if (!items.length) break;
         if (phase === 1 && nameMode) {
