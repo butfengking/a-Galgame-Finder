@@ -405,7 +405,11 @@ async function enrichSiteWithCompanyWorks(siteResult, sites, company, limit) {
   try {
     if (site.type === 'vndb') {
       // VNDB 站：作品本身即 VNDB 条目，直接附加
-      extra = company.works.map((w) => ({ title: w.alttitle ? w.title + '（' + w.alttitle + '）' : w.title, url: w.url }));
+      extra = company.works.map((w) => ({
+        title: w.alttitle ? w.title + '（' + w.alttitle + '）' : w.title,
+        url: w.url,
+        image: w.image || null,
+      }));
     } else if (site.id === 'shionlib') {
       // shionlib：用本地标题库直接匹配出条目
       extra = shionlibWorksFromIndex(company.works);

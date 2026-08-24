@@ -142,7 +142,7 @@ async function vndbWorksByProducer(producerId, fetchImpl) {
       headers: { 'Content-Type': 'application/json', 'User-Agent': 'galgame-finder/1.0' },
       body: JSON.stringify({
         filters: ['developer', '=', ['id', '=', String(producerId).replace('-', '')]],
-        fields: 'id, title, alttitle, aliases',
+        fields: 'id, title, alttitle, aliases, image.url',
         results: 30,
         sort: 'rating',
         reverse: true,
@@ -157,6 +157,7 @@ async function vndbWorksByProducer(producerId, fetchImpl) {
       alttitle: r.alttitle || '',
       aliases: Array.isArray(r.aliases) ? r.aliases.filter(Boolean) : [],
       url: 'https://vndb.org/' + r.id,
+      image: (r.image && r.image.url) || null,
     }));
   } finally {
     clearTimeout(timer);
@@ -322,7 +323,7 @@ async function vndbQuery(keyword, fetchImpl, limit) {
       },
       body: JSON.stringify({
         filters: ['search', '=', keyword],
-        fields: 'id, title, alttitle',
+        fields: 'id, title, alttitle, image.url',
         results: limit || MAX_RESULTS,
       }),
       signal: controller.signal,
@@ -334,6 +335,7 @@ async function vndbQuery(keyword, fetchImpl, limit) {
       title: r.alttitle ? r.title + '（' + r.alttitle + '）' : r.title,
       alttitle: r.alttitle || '',
       url: 'https://vndb.org/' + r.id,
+      image: (r.image && r.image.url) || null,
     }));
   } finally {
     clearTimeout(timer);
@@ -597,6 +599,21 @@ function normalizeUrl(rawHref, baseUrl) {
   return abs;
 }
 
+// 从结果元素中提取缩略图：依次尝试 src / srcset / data-src，过滤占位图。
+function extractImage(el, pageUrl) {
+  const img = el.querySelector('img');
+  if (!img) return null;
+  let src = img.getAttribute('src') || img.getAttribute('data-src') || '';
+  if (!src || src.length < 10) {
+    const srcset = img.getAttribute('srcset') || img.getAttribute('data-srcset') || '';
+    const first = (String(srcset).split(',')[0] || '').trim().split(/\s+/)[0];
+    if (first) src = first;
+  }
+  if (!src) return null;
+  if (/data:image|1x1|blank|placeholder|pixel/i.test(src) && src.length < 60) return null;
+  return normalizeUrl(src, pageUrl);
+}
+
 // 从 HTML 中提取结果。site.selector 存在时用选择器精确提取，否则用通用启发式。
 function extractResults(html, site, pageUrl, keyword, limit) {
   const cap = limit || MAX_RESULTS;
@@ -642,7 +659,7 @@ function extractResults(html, site, pageUrl, keyword, limit) {
       if (title.length < 2 || title.length > 200) continue;
       if (seen.has(abs)) continue;
       seen.add(abs);
-      out.push({ title, url: abs });
+      out.push({ title, url: abs, image: extractImage(el, pageUrl) });
       if (out.length >= cap) break;
     }
     return out;
@@ -662,7 +679,7 @@ function extractResults(html, site, pageUrl, keyword, limit) {
     if (kw && (abs.toLowerCase().includes(kw) || abs.toLowerCase().includes(encodeURIComponent(keyword)))) score += 1;
     if (title.length <= 80) score += 1;
     if (/^(首页|搜索|登录|注册|下一页|上一页|更多|关于|帮助|下载客户端|登录注册|sign ?in|log ?in|register|next|prev|home|search)$/i.test(title)) score -= 5;
-    candidates.push({ title, url: abs, score });
+    candidates.push({ title, url: abs, score, image: extractImage(a, pageUrl) });
   }
   candidates.sort((x, y) => y.score - x.score);
   const out = [];
@@ -670,7 +687,7 @@ function extractResults(html, site, pageUrl, keyword, limit) {
   for (const c of candidates) {
     if (seen.has(c.url)) continue;
     seen.add(c.url);
-    out.push({ title: c.title, url: c.url });
+    out.push({ title: c.title, url: c.url, image: c.image });
     if (out.length >= cap) break;
   }
   return out;

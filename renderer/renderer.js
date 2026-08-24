@@ -189,18 +189,38 @@
   }
 
   // ---------- 结果渲染 ----------
-  function makeLink(title, url) {
+  function makeLink(title, url, image) {
     const a = document.createElement('a');
     a.href = url;
-    a.textContent = title;
+    if (image) {
+      const thumb = document.createElement('img');
+      thumb.className = 'result-thumb';
+      thumb.src = image;
+      thumb.loading = 'lazy';
+      thumb.alt = '';
+      thumb.addEventListener('error', () => thumb.remove());
+      a.appendChild(thumb);
+      const textWrap = document.createElement('span');
+      textWrap.className = 'result-text';
+      const titleSpan = document.createElement('span');
+      titleSpan.textContent = title;
+      textWrap.appendChild(titleSpan);
+      const hint = document.createElement('span');
+      hint.className = 'url-hint';
+      hint.textContent = url;
+      textWrap.appendChild(hint);
+      a.appendChild(textWrap);
+    } else {
+      a.textContent = title;
+      const hint = document.createElement('span');
+      hint.className = 'url-hint';
+      hint.textContent = url;
+      a.appendChild(hint);
+    }
     a.addEventListener('click', (e) => {
       e.preventDefault();
       api.openExternal(url);
     });
-    const hint = document.createElement('span');
-    hint.className = 'url-hint';
-    hint.textContent = url;
-    a.appendChild(hint);
     return a;
   }
 
@@ -269,7 +289,7 @@
         ul.className = 'result-list';
         for (const item of r.results) {
           const li = document.createElement('li');
-          li.appendChild(makeLink(item.title, item.url));
+          li.appendChild(makeLink(item.title, item.url, item.image));
           ul.appendChild(li);
         }
         body.appendChild(ul);
