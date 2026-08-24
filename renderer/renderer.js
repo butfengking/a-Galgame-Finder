@@ -163,6 +163,30 @@
       li.appendChild(badge);
     }
 
+    if (site.type === 'pixiv') {
+      const pixivBtn = document.createElement('button');
+      pixivBtn.className = 'edit-btn';
+      pixivBtn.type = 'button';
+      pixivBtn.textContent = '登录';
+      api.pixivStatus().then((st) => {
+        if (st && st.loggedIn) {
+          pixivBtn.textContent = '已登录';
+          pixivBtn.title = 'Pixiv 已登录，点击退出登录';
+          pixivBtn.addEventListener('click', async () => {
+            await api.pixivLogout();
+            renderSites();
+          });
+        } else {
+          pixivBtn.title = '登录 Pixiv 后可使用插画搜索';
+          pixivBtn.addEventListener('click', async () => {
+            const r = await api.pixivLogin();
+            if (r && r.ok) renderSites();
+          });
+        }
+      });
+      li.appendChild(pixivBtn);
+    }
+
     const edit = document.createElement('button');
     edit.className = 'edit-btn';
     edit.type = 'button';

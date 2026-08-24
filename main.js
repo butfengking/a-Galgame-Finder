@@ -13,6 +13,7 @@ const {
   vndbWorksByProducer,
   normTitle,
   searchWorkOnHtmlSite,
+  BROWSER_UA,
 } = require('./search');
 
 const DEFAULT_SITES = [
@@ -72,6 +73,17 @@ const DEFAULT_SITES = [
     enabled: false,
     builtin: true,
   },
+  {
+    id: 'pixiv',
+    name: 'Pixiv 插画',
+    type: 'pixiv', // 需登录 Pixiv（应用内登录，保存 PHPSESSID）
+    url: '',
+    selector: '',
+    titleSelector: '',
+    category: '图片',
+    enabled: false,
+    builtin: true,
+  },
 ];
 
 const SETTINGS_VERSION = 4;
@@ -99,6 +111,10 @@ protocol.registerSchemesAsPrivileged([
   },
   {
     scheme: 'wpimg', // 本地 Wallpaper Engine 壁纸预览图
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true },
+  },
+  {
+    scheme: 'piximg', // Pixiv 图片代理（带登录 Cookie + Referer）
     privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true },
   },
 ]);
@@ -384,6 +400,132 @@ function registerWpImgProtocol() {
   });
 }
 
+// ---------- Pixiv（需登录） ----------
+function pixivCookieFile() {
+  return path.join(dataDir(), 'pixiv-session.json');
+}
+
+function readPixivCookie() {
+  const data = readJson(pixivCookieFile(), null);
+  return data && data.phpsessid ? data.phpsessid : null;
+}
+
+function savePixivCookie(phpsessid) {
+  writeJson(pixivCookieFile(), { phpsessid, savedAt: Date.now() });
+}
+
+function clearPixivCookie() {
+  try {
+    fs.unlinkSync(pixivCookieFile());
+  } catch (e) {
+    /* ignore */
+  }
+}
+
+// Pixiv 搜索：官方 ajax 接口（需 PHPSESSID + Referer）
+async function pixivSearch(keyword, fetchImpl, extra, limit) {
+  const cookie = readPixivCookie();
+  if (!cookie) throw new Error('未登录 Pixiv：请在左侧 Pixiv 行点“登录”完成登录后再搜索');
+  const cap = limit || 10;
+  const kw = String(keyword || '').trim();
+  const enc = encodeURIComponent(kw);
+  const url =
+    'https://www.pixiv.net/ajax/search/artworks/' +
+    enc +
+    '?word=' +
+    enc +
+    '&order=date_d&mode=all&p=1&s_mode=s_tag&type=all&lang=zh';
+  const res = await fetchImpl(url, {
+    headers: {
+      'User-Agent': BROWSER_UA,
+      Referer: 'https://www.pixiv.net/',
+      'Accept-Language': 'zh-CN,zh;q=0.9',
+      Cookie: 'PHPSESSID=' + cookie,
+    },
+  });
+  if (!res.ok) throw new Error('Pixiv HTTP ' + res.status);
+  const data = await res.json();
+  if (data.error) throw new Error(data.message || 'Pixiv 搜索失败');
+  const items = (data.body && data.body.illustManga && data.body.illustManga.data) || [];
+  return items.slice(0, cap).map((it) => ({
+    title: it.title,
+    url: 'https://www.pixiv.net/artworks/' + it.id,
+    image: it.url ? 'piximg://img/' + encodeURIComponent(it.url) : null,
+  }));
+}
+
+// Pixiv 图片代理：带登录 Cookie + Referer 抓取 i.pximg.net
+function registerPixImgProtocol() {
+  protocol.handle('piximg', async (request) => {
+    try {
+      const encoded = new URL(request.url).pathname.replace(/^\/img\//, '');
+      const target = decodeURIComponent(encoded);
+      const cookie = readPixivCookie();
+      const res = await net.fetch(target, {
+        headers: {
+          'User-Agent': BROWSER_UA,
+          Referer: 'https://www.pixiv.net/',
+          Cookie: cookie ? 'PHPSESSID=' + cookie : '',
+        },
+      });
+      if (!res.ok) return new Response('fetch failed', { status: 502 });
+      const buf = Buffer.from(await res.arrayBuffer());
+      const ct = res.headers.get('content-type') || 'image/jpeg';
+      return new Response(buf, { headers: { 'Content-Type': ct } });
+    } catch (e) {
+      return new Response('bad request', { status: 400 });
+    }
+  });
+}
+
+// 登录窗口：用户登录后自动捕获 PHPSESSID 并保存
+ipcMain.handle('pixiv:login', () => {
+  if (readPixivCookie()) return Promise.resolve({ ok: true, already: true });
+  return new Promise((resolve) => {
+    const win = new BrowserWindow({
+      width: 1000,
+      height: 720,
+      title: '登录 Pixiv',
+      autoHideMenuBar: true,
+    });
+    win.loadURL('https://accounts.pixiv.net/login?lang=zh&source=pc&view_type=page&ref=wwwtop_accounts_index');
+    let finished = false;
+    const finish = (ok) => {
+      if (!finished) {
+        finished = true;
+        resolve({ ok });
+      }
+    };
+    const check = async () => {
+      if (finished) return;
+      try {
+        const cookies = await win.webContents.session.cookies.get({ url: 'https://www.pixiv.net/' });
+        const ph = cookies.find((c) => c.name === 'PHPSESSID' && c.value);
+        if (ph) {
+          savePixivCookie(ph.value);
+          win.close();
+          finish(true);
+          return;
+        }
+      } catch (e) {
+        /* ignore */
+      }
+      setTimeout(check, 2000);
+    };
+    check();
+    win.on('closed', () => finish(false));
+  });
+});
+
+ipcMain.handle('pixiv:status', () => {
+  return { loggedIn: !!readPixivCookie() };
+});
+
+ipcMain.handle('pixiv:logout', () => {
+  clearPixivCookie();
+  return { loggedIn: false };
+});
+
 function createWindow() {
   const iconPath = path.join(__dirname, 'build', 'icon.ico');
   const win = new BrowserWindow({
@@ -503,6 +645,8 @@ ipcMain.handle('search', async (e, keyword) => {
             ? await vndbSearch(keyword, net.fetch, extra, limit)
             : site.type === 'wallpaper'
             ? await wallpaperSearch(keyword, net.fetch, extra, limit)
+            : site.type === 'pixiv'
+            ? await pixivSearch(keyword, net.fetch, extra, limit)
             : await htmlSearch(keyword, site, net.fetch, extra, limit);
         return { siteId: site.id, siteName: site.name, ok: true, count: list.length, results: list };
       } catch (err) {
@@ -847,6 +991,7 @@ function ensureShionlibIndex() {
 app.whenReady().then(() => {
   registerAppBgProtocol();
   registerWpImgProtocol();
+  registerPixImgProtocol();
   Menu.setApplicationMenu(null);
   ensureShionlibIndex(); // 后台预建中文缩写索引
   createWindow();
