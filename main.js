@@ -612,26 +612,41 @@ ipcMain.handle('open-in-app', (e, url) => {
   return { ok: true };
 });
 
-// 下载 Pixiv 作品原图到 图片\\Pixiv\\（主进程按作品 ID 获取原图地址并保存，带登录 Cookie + Referer）
-// 从 ajax 返回的 body 中尽力收集图片地址（兼容多种字段结构）
+// 把任意 Pixiv 图片地址规整为原图（img-original）地址；无法规整则返回 null
+function toPixivOriginal(u) {
+  if (typeof u !== 'string' || !/^https?:\/\//i.test(u)) return null;
+  let s = u;
+  // 去掉 c/<尺寸>/ 前缀（缩略图/中等图路径）
+  s = s.replace(/^https?:\/\/i\.pximg\.net\/c\/[^/]+\//i, 'https://i.pximg.net/');
+  // 中等图 -> 原图：img-master -> img-original，去掉 _masterNNNN 后缀
+  if (/img-master\//i.test(s)) {
+    s = s.replace('/img-master/', '/img-original/').replace(/_master\d+\.(?:jpg|jpeg|png|gif)$/i, '.png');
+  }
+  if (!/img-original\//i.test(s)) return null;
+  return s;
+}
+
+// 从 ajax 返回的 body 中收集图片地址（兼容多种字段结构），只保留原图并去重
 function collectPixivImageUrls(body) {
-  const urls = [];
-  const push = (u) => {
-    if (typeof u === 'string' && u && urls.indexOf(u) === -1) urls.push(u);
-  };
+  const raw = [];
   const src = (body && (body.images || body.urls || body.originalImages || body.imageList)) || null;
   if (Array.isArray(src)) {
     for (const it of src) {
-      if (typeof it === 'string') push(it);
-      else push(it && (it.url || it.original || it.thumb || it.master));
+      if (typeof it === 'string') raw.push(it);
+      else raw.push(it && (it.url || it.original || it.master));
     }
   } else if (src && typeof src === 'object') {
     for (const v of Object.values(src)) {
-      if (typeof v === 'string') push(v);
-      else push(v && (v.url || v.original || v.thumb || v.master));
+      if (typeof v === 'string') raw.push(v);
+      else raw.push(v && (v.url || v.original || v.master));
     }
   }
-  return urls.filter((u) => /^https?:\/\//i.test(u));
+  const urls = [];
+  for (const u of raw) {
+    const o = toPixivOriginal(u);
+    if (o && urls.indexOf(o) === -1) urls.push(o);
+  }
+  return urls;
 }
 
 // 兜底：抓作品页 HTML，从内嵌数据中提取原图地址（i.pximg.net/img-original/...）
@@ -647,11 +662,15 @@ async function extractPixivImagesFromPage(id, cookie) {
     let m;
     while ((m = re.exec(html)) && urls.length < 30) {
       const u = 'https://' + m[0].replace(/\\\//g, '/');
-      if (/img-original/.test(u) && !urls.includes(u)) urls.push(u);
+      const o = toPixivOriginal(u);
+      if (o && urls.indexOf(o) === -1) urls.push(o);
     }
     if (!urls.length) {
       const og = html.match(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i);
-      if (og) urls.push(og[1]);
+      if (og) {
+        const o = toPixivOriginal(og[1]);
+        if (o) urls.push(o);
+      }
     }
     return urls;
   } catch (e) {
