@@ -454,46 +454,111 @@ async function pixivSearch(keyword, fetchImpl, extra, limit) {
     if (s && s !== raw && !candidates.includes(s)) candidates.push(s);
   }
 
-  // 逐变体完整搜索（不去重、不因重复页提前停止，避免漏结果），最终只受结果数上限约束
+  // 人名搜索：因为人名分 姓/名，搜姓或名时 Pixiv 会返回“相关标签”（如搜 莓华 → 御園莓華）。
+  // 先搜原词第 1 页：若某个简体/繁体变体是某相关标签的子串（短中文片段 = 人名），
+  // 进入人名模式 —— 把完整人名标签加入队列，按配额轮流呈现 名/姓/姓名，再补满上限。
+  // 非人名搜索（无扩展或词非短中文）走原有逐变体深度优先逻辑，行为不变。
   const results = [];
-  for (const q of candidates) {
+  const queued = new Set(candidates);
+  const queue = candidates.slice();
+  const perTagCount = new Map(); // 标签 -> 已贡献结果数
+  const pageDone = new Map(); // 标签 -> 已抓页数
+
+  const fetchPage = async (q, page) => {
     const enc = encodeURIComponent(q);
-    for (let p = 1; p <= 5 && results.length < cap; p++) {
-      const url =
-        'https://www.pixiv.net/ajax/search/artworks/' +
-        enc +
-        '?word=' +
-        enc +
-        '&order=date_d&mode=all&p=' +
-        p +
-        '&s_mode=s_tag_full&type=all&lang=zh';
-      const res = await fetchImpl(url, {
-        headers: {
-          'User-Agent': BROWSER_UA,
-          Referer: 'https://www.pixiv.net/',
-          'Accept-Language': 'zh-CN,zh;q=0.9',
-          Cookie: 'PHPSESSID=' + cookie,
-        },
+    const url =
+      'https://www.pixiv.net/ajax/search/artworks/' +
+      enc +
+      '?word=' +
+      enc +
+      '&order=date_d&mode=all&p=' +
+      page +
+      '&s_mode=s_tag_full&type=all&lang=zh';
+    const res = await fetchImpl(url, {
+      headers: {
+        'User-Agent': BROWSER_UA,
+        Referer: 'https://www.pixiv.net/',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+        Cookie: 'PHPSESSID=' + cookie,
+      },
+    });
+    if (!res.ok) {
+      pageDone.set(q, page); // 失败页也标记，避免反复重试
+      if (results.length) return {};
+      throw new Error('Pixiv HTTP ' + res.status);
+    }
+    const data = await res.json();
+    if (data.error) {
+      pageDone.set(q, page);
+      if (results.length) return {};
+      throw new Error(data.message || 'Pixiv 搜索失败');
+    }
+    pageDone.set(q, page);
+    return data.body || {};
+  };
+  const pushItems = (q, items) => {
+    for (const it of items) {
+      if (results.length >= cap) break;
+      perTagCount.set(q, (perTagCount.get(q) || 0) + 1);
+      results.push({
+        title: it.title,
+        url: 'https://www.pixiv.net/artworks/' + it.id,
+        image: it.url ? 'piximg://img/' + encodeURIComponent(it.url) : null,
       });
-      if (!res.ok) {
-        if (results.length) break; // 已有结果时容错返回
-        throw new Error('Pixiv HTTP ' + res.status);
+    }
+  };
+
+  // 原词第 1 页：决定是否人名模式
+  let nameMode = false;
+  let quota = 0;
+  const rawBody = await fetchPage(raw, 1);
+  if (Array.isArray(rawBody.relatedTags)) {
+    const variants = [...new Set([raw, tify(raw), sify(raw)].filter(Boolean))];
+    const relevant = rawBody.relatedTags.filter(
+      (rt) => typeof rt === 'string' && rt !== raw && variants.some((v) => rt.length > v.length && rt.includes(v))
+    );
+    if (relevant.length && raw.length <= 3 && /[\u4e00-\u9fff]/.test(raw)) {
+      nameMode = true;
+      quota = Math.max(2, Math.floor(cap / Math.max(2, relevant.length + 1)));
+      for (const rt of relevant) {
+        if (!queued.has(rt)) {
+          queued.add(rt);
+          queue.push(rt);
+        }
       }
-      const data = await res.json();
-      if (data.error) {
-        if (results.length) break;
-        throw new Error(data.message || 'Pixiv 搜索失败');
+    }
+  }
+  pushItems(raw, (rawBody.illustManga && rawBody.illustManga.data) || []);
+
+  // 阶段1：每人名变体按配额贡献结果（保证 名/姓/姓名 都呈现）；阶段2：补满上限
+  let phase = 1;
+  while (results.length < cap) {
+    let progressed = false;
+    for (let qi = 0; qi < queue.length && results.length < cap; qi++) {
+      const q = queue[qi];
+      if (phase === 1 && nameMode && (perTagCount.get(q) || 0) >= quota) continue;
+      const startPage = (pageDone.get(q) || 0) + 1;
+      for (let p = startPage; p <= 5 && results.length < cap; p++) {
+        if (phase === 1 && nameMode && (perTagCount.get(q) || 0) >= quota) break;
+        const body = await fetchPage(q, p);
+        progressed = true;
+        const items = (body.illustManga && body.illustManga.data) || [];
+        if (!items.length) break;
+        if (phase === 1 && nameMode) {
+          const room = quota - (perTagCount.get(q) || 0);
+          if (room > 0) pushItems(q, items.slice(0, room));
+        } else {
+          pushItems(q, items);
+        }
       }
-      const items = (data.body && data.body.illustManga && data.body.illustManga.data) || [];
-      if (!items.length) break;
-      for (const it of items) {
-        if (results.length >= cap) break;
-        results.push({
-          title: it.title,
-          url: 'https://www.pixiv.net/artworks/' + it.id,
-          image: it.url ? 'piximg://img/' + encodeURIComponent(it.url) : null,
-        });
+    }
+    if (results.length >= cap) break;
+    if (!progressed) {
+      if (phase === 1 && nameMode) {
+        phase = 2; // 配额阶段完成，进入补足阶段
+        continue;
       }
+      break;
     }
   }
   return results.slice(0, cap);

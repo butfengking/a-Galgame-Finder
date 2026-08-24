@@ -1,13 +1,13 @@
 {
   "name": "galgame-finder",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "在指定网站查找 galgame 的桌面应用",
   "author": "local",
   "license": "MIT",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node test-search.js",
+    "test": "node test-search.js && node test-relatedtags.js",
     "pack": "electron-builder --dir",
     "dist": "electron-builder --win portable",
     "dist:setup": "electron-builder --win nsis",
